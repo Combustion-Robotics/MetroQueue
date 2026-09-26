@@ -2021,6 +2021,24 @@ class MusicService :
         automixItems.value = emptyList()
     }
 
+    fun clearQueue() {
+        if (player.mediaItemCount == 0) return
+        val currentIndex = player.currentMediaItemIndex
+        currentQueue = EmptyQueue
+        queueTitle = null
+        originalQueueSize = 0
+        clearAutomix()
+        if (currentIndex < player.mediaItemCount - 1) {
+            player.removeMediaItems(currentIndex + 1, player.mediaItemCount)
+        }
+        if (currentIndex > 0) {
+            player.removeMediaItems(0, currentIndex)
+        }
+        if (cachedPersistentQueue) {
+            saveQueueToDisk()
+        }
+    }
+
     fun playNext(items: List<MediaItem>) {
         // If queue is empty or player is idle, play immediately instead
         if (player.mediaItemCount == 0 || player.playbackState == STATE_IDLE) {

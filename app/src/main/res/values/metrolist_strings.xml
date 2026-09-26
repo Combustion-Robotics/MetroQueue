@@ -637,6 +637,7 @@
     <string name="approve">Approve</string>
     <string name="reject">Reject</string>
     <string name="clear">Clear</string>
+    <string name="clear_queue">Clear queue</string>
     <string name="copy">Copy</string>
     <string name="change">Change</string>
     <string name="copied_to_clipboard">Copied to clipboard</string>
