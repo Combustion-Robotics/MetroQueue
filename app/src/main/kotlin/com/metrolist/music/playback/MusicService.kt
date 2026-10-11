@@ -2035,6 +2035,24 @@ class MusicService :
         automixItems.value = emptyList()
     }
 
+    fun clearQueue() {
+        if (player.mediaItemCount == 0) return
+        val currentIndex = player.currentMediaItemIndex
+        currentQueue = EmptyQueue
+        queueTitle = null
+        originalQueueSize = 0
+        clearAutomix()
+        if (currentIndex < player.mediaItemCount - 1) {
+            player.removeMediaItems(currentIndex + 1, player.mediaItemCount)
+        }
+        if (currentIndex > 0) {
+            player.removeMediaItems(0, currentIndex)
+        }
+        if (cachedPersistentQueue) {
+            saveQueueToDisk()
+        }
+    }
+
     private val prioritizeAddedSongs: Boolean
         get() = cachedPrioritizeAddedSongs && !listenTogetherManager.isInRoom
 
