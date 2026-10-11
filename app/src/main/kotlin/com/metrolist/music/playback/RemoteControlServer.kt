@@ -5,9 +5,17 @@
 
 package com.metrolist.music.playback
 
+import androidx.compose.ui.graphics.toArgb
 import androidx.media3.common.C
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.source.ShuffleOrder.DefaultShuffleOrder
+import coil3.imageLoader
+import coil3.request.ImageRequest
+import coil3.request.allowHardware
+import coil3.toBitmap
+import com.materialkolor.PaletteStyle
+import com.materialkolor.dynamicColorScheme
+import com.materialkolor.dynamiccolor.ColorSpec
 import com.metrolist.innertube.YouTube
 import com.metrolist.innertube.YouTube.SearchFilter.Companion.FILTER_SONG
 import com.metrolist.innertube.models.SongItem
@@ -26,6 +34,8 @@ import com.metrolist.music.models.MediaMetadata
 import com.metrolist.music.models.toMediaMetadata
 import com.metrolist.music.playback.queues.ListQueue
 import com.metrolist.music.playback.queues.YouTubeQueue
+import com.metrolist.music.ui.theme.DefaultThemeColor
+import com.metrolist.music.ui.theme.extractThemeColor
 import com.metrolist.music.ui.utils.resize
 import com.metrolist.music.utils.dataStore
 import com.metrolist.music.utils.get
@@ -80,6 +90,8 @@ class RemoteControlServer(
 ) {
     private val json = Json { encodeDefaults = true }
     private val searchResults = ConcurrentHashMap<String, MediaMetadata>()
+    @Volatile
+    private var themeCache: Pair<String?, Map<String, Map<String, String>>>? = null
     private val page by lazy { service.assets.open("remote/index.html").bufferedReader().use { it.readText() } }
 
     private val server =
@@ -93,6 +105,9 @@ class RemoteControlServer(
                 }
                 get("/api/queue") {
                     if (call.authorized()) call.respondJson(json.encodeToString(onMain { queue() }))
+                }
+                get("/api/theme") {
+                    if (call.authorized()) call.respondJson(json.encodeToString(theme(onMain { service.player.currentMetadata?.thumbnailUrl })))
                 }
                 get("/api/search") {
                     if (!call.authorized()) return@get
@@ -154,6 +169,53 @@ class RemoteControlServer(
         duration = duration * 1000L,
         pick = pick,
     )
+
+    // Same Material 3 scheme the app builds from the artwork (see MainActivity / MetrolistTheme)
+    private suspend fun theme(artUrl: String?): Map<String, Map<String, String>> {
+        themeCache?.takeIf { it.first == artUrl }?.let { return it.second }
+        val seed =
+            artUrl?.let {
+                runCatching {
+                    service.imageLoader
+                        .execute(ImageRequest.Builder(service).data(it).allowHardware(false).build())
+                        .image
+                        ?.toBitmap()
+                        ?.extractThemeColor()
+                }.getOrNull()
+            } ?: DefaultThemeColor
+        val schemes =
+            mapOf(false to "light", true to "dark").entries.associate { (isDark, name) ->
+                val scheme =
+                    dynamicColorScheme(
+                        seedColor = seed,
+                        isDark = isDark,
+                        specVersion = ColorSpec.SpecVersion.SPEC_2025,
+                        style = PaletteStyle.TonalSpot,
+                    )
+                name to
+                    mapOf(
+                        "primary" to scheme.primary,
+                        "on-primary" to scheme.onPrimary,
+                        "primary-container" to scheme.primaryContainer,
+                        "on-primary-container" to scheme.onPrimaryContainer,
+                        "secondary-container" to scheme.secondaryContainer,
+                        "on-secondary-container" to scheme.onSecondaryContainer,
+                        "surface" to scheme.surface,
+                        "surface-container-low" to scheme.surfaceContainerLow,
+                        "surface-container" to scheme.surfaceContainer,
+                        "surface-container-high" to scheme.surfaceContainerHigh,
+                        "surface-container-highest" to scheme.surfaceContainerHighest,
+                        "on-surface" to scheme.onSurface,
+                        "on-surface-variant" to scheme.onSurfaceVariant,
+                        "outline" to scheme.outline,
+                        "outline-variant" to scheme.outlineVariant,
+                        "inverse-surface" to scheme.inverseSurface,
+                        "inverse-on-surface" to scheme.inverseOnSurface,
+                    ).mapValues { (_, color) -> "#%06X".format(color.toArgb() and 0xFFFFFF) }
+            }
+        themeCache = artUrl to schemes
+        return schemes
+    }
 
     private fun queue(): List<RemoteTrack> =
         service.player.getQueueWindows().map { it.mediaItem.metadata!!.toRemote(pick = it.mediaItem.isUserPick) }
