@@ -1197,7 +1197,7 @@ class MusicService :
         }
         scope.launch {
             dataStore.data
-                .map { it[RemoteControlEnabledKey] == true to it[RemoteControlKeyKey].orEmpty() }
+                .map { (it[RemoteControlEnabledKey] == true) to it[RemoteControlKeyKey].orEmpty() }
                 .distinctUntilChanged()
                 .collect { (enabled, key) ->
                     withContext(Dispatchers.IO) {
