@@ -168,6 +168,10 @@
     <string name="next_in_queue">Next in queue</string>
     <string name="next_from">Next from: %1$s</string>
     <string name="next_up">Next up</string>
+    <string name="remote_control">Remote control</string>
+    <string name="remote_control_desc">Control playback from a browser on the same Wi-Fi. Anyone on your network with the link can control the player</string>
+    <string name="remote_control_url">Open %1$s in a browser on the same Wi-Fi. Tap to copy</string>
+    <string name="remote_control_no_network">Connect to Wi-Fi to get the link</string>
     <string name="add_to_playlist_position">Add to playlist position</string>
     <string name="playlist_position_beginning">Beginning of playlist</string>
     <string name="playlist_position_beginning_desc">Newly added songs appear before existing songs</string>

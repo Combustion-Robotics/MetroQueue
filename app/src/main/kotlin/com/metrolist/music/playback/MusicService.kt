@@ -156,6 +156,8 @@ import com.metrolist.music.constants.PlayerVolumeKey
 import com.metrolist.music.constants.PreventDuplicateTracksInQueueKey
 import com.metrolist.music.constants.PrioritizeAddedSongsKey
 import com.metrolist.music.constants.RememberShuffleAndRepeatKey
+import com.metrolist.music.constants.RemoteControlEnabledKey
+import com.metrolist.music.constants.RemoteControlKeyKey
 import com.metrolist.music.constants.RepeatModeKey
 import com.metrolist.music.constants.ResumeOnBluetoothConnectKey
 import com.metrolist.music.constants.ScrobbleDelayPercentKey
@@ -508,6 +510,8 @@ class MusicService :
     private var cachedPrioritizeAddedSongs = false
     @Volatile
     private var cachedNewRadioAfterAddedSongs = false
+    @Volatile
+    private var remoteControlServer: RemoteControlServer? = null
 
     // URL cache for stream URLs - class-level so it can be invalidated on errors
     private val songUrlCache = StreamUrlCache()
@@ -1190,6 +1194,24 @@ class MusicService :
         }
         scope.launch {
             dataStore.data.map { it[NewRadioAfterAddedSongsKey] ?: false }.distinctUntilChanged().collect { cachedNewRadioAfterAddedSongs = it }
+        }
+        scope.launch {
+            dataStore.data
+                .map { it[RemoteControlEnabledKey] == true to it[RemoteControlKeyKey].orEmpty() }
+                .distinctUntilChanged()
+                .collect { (enabled, key) ->
+                    withContext(Dispatchers.IO) {
+                        remoteControlServer?.stop()
+                        remoteControlServer =
+                            if (enabled && key.isNotEmpty()) {
+                                runCatching { RemoteControlServer(this@MusicService, key).apply { start() } }
+                                    .onFailure { Timber.tag(TAG).e(it, "Remote control server failed to start") }
+                                    .getOrNull()
+                            } else {
+                                null
+                            }
+                    }
+                }
         }
         if (startupPrefs!![PersistentQueueKey] ?: true) {
             val queueFile = filesDir.resolve(PERSISTENT_QUEUE_FILE)
@@ -4339,6 +4361,7 @@ class MusicService :
         }
         audioManager.unregisterAudioDeviceCallback(audioDeviceCallback)
         castConnectionHandler?.release()
+        remoteControlServer?.stop()
         if (dataStore.get(PersistentQueueKey, true)) {
             saveQueueToDisk()
             savePlayerStateToDisk()

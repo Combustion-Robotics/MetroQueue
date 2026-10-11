@@ -306,6 +306,7 @@ dependencies {
     implementation(libs.ktor.client.content.negotiation)
     implementation(libs.ktor.client.encoding)
     implementation(libs.ktor.serialization.json)
+    implementation(libs.ktor.server.cio)
 
     // Protobuf for message serialization (lite version for Android)
     implementation(libs.protobuf.javalite)

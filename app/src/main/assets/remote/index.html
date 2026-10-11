@@ -1,0 +1,513 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Metrolist Remote</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%23a78bfa' d='M12 3v10.55A4 4 0 1 0 14 17V7h4V3h-6z'/%3E%3C/svg%3E">
+<style>
+  :root {
+    --bg: #f4f2f8;
+    --surface: rgba(255, 255, 255, 0.62);
+    --surface-hover: rgba(255, 255, 255, 0.9);
+    --border: rgba(20, 10, 40, 0.08);
+    --text: #17131f;
+    --muted: #6b6478;
+    --accent: #6d4fd8;
+    --on-accent: #fff;
+    --track: rgba(20, 10, 40, 0.12);
+    --shadow: 0 20px 60px rgba(40, 20, 80, 0.18);
+    --art-opacity: 0.45;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0e0c13;
+      --surface: rgba(28, 24, 38, 0.55);
+      --surface-hover: rgba(48, 42, 64, 0.7);
+      --border: rgba(255, 255, 255, 0.07);
+      --text: #f2eff8;
+      --muted: #a39cb3;
+      --accent: #b9a4ff;
+      --on-accent: #1b1230;
+      --track: rgba(255, 255, 255, 0.14);
+      --shadow: 0 24px 70px rgba(0, 0, 0, 0.55);
+      --art-opacity: 0.55;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font: 15px/1.4 "Segoe UI Variable", "Segoe UI", system-ui, -apple-system, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    overflow: hidden;
+  }
+  button { font: inherit; color: inherit; border: 0; background: none; cursor: pointer; }
+  svg { width: 24px; height: 24px; fill: currentColor; flex: none; display: block; }
+
+  #backdrop {
+    position: fixed; inset: -10%;
+    background: center / cover no-repeat;
+    filter: blur(70px) saturate(1.5);
+    opacity: var(--art-opacity);
+    transition: background-image 0.8s ease;
+    z-index: -1;
+  }
+  #backdrop::after {
+    content: ""; position: absolute; inset: 0;
+    background: radial-gradient(ellipse at top left, transparent 0%, var(--bg) 85%);
+  }
+
+  .app {
+    height: 100%;
+    display: grid;
+    grid-template-columns: minmax(320px, 460px) minmax(0, 1fr);
+    gap: 24px;
+    padding: 24px;
+    max-width: 1280px;
+    margin: 0 auto;
+  }
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 28px;
+    backdrop-filter: blur(24px) saturate(1.3);
+    -webkit-backdrop-filter: blur(24px) saturate(1.3);
+    box-shadow: var(--shadow);
+    min-height: 0;
+  }
+
+  /* Now playing */
+  .player {
+    display: flex; flex-direction: column; justify-content: center;
+    padding: 32px; gap: 22px;
+  }
+  .art-wrap { position: relative; aspect-ratio: 1; width: 100%; }
+  .art {
+    width: 100%; height: 100%; object-fit: cover;
+    border-radius: 22px;
+    background: var(--track);
+    box-shadow: 0 18px 50px rgba(0, 0, 0, 0.35);
+    transition: transform 0.4s cubic-bezier(.2, .8, .2, 1);
+  }
+  .paused .art { transform: scale(0.94); }
+  .meta { min-width: 0; }
+  #title { margin: 0; font-size: 24px; font-weight: 700; letter-spacing: -0.01em; }
+  #artist { margin: 4px 0 0; color: var(--muted); font-size: 16px; }
+  #title, #artist { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  input[type=range] {
+    -webkit-appearance: none; appearance: none;
+    width: 100%; height: 6px; margin: 0;
+    border-radius: 99px; cursor: pointer;
+    background: linear-gradient(to right, var(--accent) var(--p, 0%), var(--track) var(--p, 0%));
+  }
+  input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none; width: 14px; height: 14px; border-radius: 50%;
+    background: var(--accent); border: 0; transform: scale(0); transition: transform 0.15s;
+  }
+  input[type=range]::-moz-range-thumb {
+    width: 14px; height: 14px; border-radius: 50%; background: var(--accent); border: 0;
+  }
+  input[type=range]:hover::-webkit-slider-thumb, input[type=range]:active::-webkit-slider-thumb { transform: scale(1); }
+  .times { display: flex; justify-content: space-between; margin-top: 8px; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+
+  .controls { display: flex; align-items: center; justify-content: space-between; }
+  .icon-btn {
+    width: 44px; height: 44px; border-radius: 50%;
+    display: grid; place-items: center;
+    color: var(--muted);
+    transition: background 0.15s, color 0.15s, transform 0.1s;
+  }
+  .icon-btn:hover { background: var(--surface-hover); color: var(--text); }
+  .icon-btn:active { transform: scale(0.92); }
+  .icon-btn.on { color: var(--accent); }
+  .icon-btn.big { width: 52px; height: 52px; color: var(--text); }
+  .icon-btn.big svg { width: 32px; height: 32px; }
+  #play {
+    width: 72px; height: 72px; border-radius: 24px;
+    background: var(--accent); color: var(--on-accent);
+    box-shadow: 0 10px 30px color-mix(in srgb, var(--accent) 45%, transparent);
+  }
+  #play:hover { background: var(--accent); color: var(--on-accent); filter: brightness(1.08); }
+  #play svg { width: 36px; height: 36px; }
+  .volume { display: flex; align-items: center; gap: 12px; color: var(--muted); }
+
+  /* Side panel */
+  .side { display: flex; flex-direction: column; overflow: hidden; }
+  .side-head { display: flex; align-items: center; gap: 8px; padding: 18px 18px 10px 22px; }
+  .tabs { display: flex; gap: 4px; background: var(--track); padding: 4px; border-radius: 99px; }
+  .tab { padding: 7px 18px; border-radius: 99px; color: var(--muted); font-weight: 600; transition: background 0.15s, color 0.15s; }
+  .tab.on { background: var(--surface-hover); color: var(--text); box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12); }
+  .spacer { flex: 1; }
+  .pill-btn {
+    display: flex; align-items: center; gap: 6px;
+    padding: 7px 14px 7px 10px; border-radius: 99px;
+    color: var(--muted); font-weight: 600; font-size: 13px;
+  }
+  .pill-btn:hover { background: var(--surface-hover); color: var(--text); }
+  .pill-btn svg { width: 20px; height: 20px; }
+
+  .pane { flex: 1; overflow-y: auto; padding: 4px 12px 16px; scrollbar-width: thin; }
+  .pane[hidden] { display: none; }
+  .section { margin: 18px 12px 6px; color: var(--muted); font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
+  .section:first-child { margin-top: 6px; }
+
+  .row {
+    position: relative;
+    display: flex; align-items: center; gap: 14px;
+    padding: 8px 10px; border-radius: 16px;
+    cursor: pointer; transition: background 0.12s;
+  }
+  .row:hover { background: var(--surface-hover); }
+  .row img, .row .ph { width: 48px; height: 48px; border-radius: 10px; object-fit: cover; background: var(--track); flex: none; }
+  .row .txt { flex: 1; min-width: 0; }
+  .row .t { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .row .a { color: var(--muted); font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .row .d { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+  .row.current { background: color-mix(in srgb, var(--accent) 16%, transparent); }
+  .row.current .t { color: var(--accent); }
+  .row .acts {
+    position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
+    display: flex; gap: 2px; padding-left: 24px;
+    background: linear-gradient(to right, transparent, var(--surface-hover) 24px);
+    opacity: 0; pointer-events: none; transition: opacity 0.12s;
+  }
+  .row:hover .acts, .row:focus-within .acts { pointer-events: auto; }
+  .row:hover .acts, .row:focus-within .acts { opacity: 1; }
+  .row .acts .icon-btn { width: 36px; height: 36px; }
+  .row .acts svg { width: 20px; height: 20px; }
+
+  .eq { display: flex; gap: 2px; align-items: flex-end; height: 14px; }
+  .eq i { width: 3px; background: var(--accent); border-radius: 2px; animation: eq 0.9s ease-in-out infinite; }
+  .eq i:nth-child(2) { animation-delay: -0.3s; } .eq i:nth-child(3) { animation-delay: -0.6s; }
+  .paused .eq i { animation-play-state: paused; }
+  @keyframes eq { 0%, 100% { height: 30%; } 50% { height: 100%; } }
+
+  .search-box {
+    display: flex; align-items: center; gap: 10px;
+    margin: 6px 10px 10px; padding: 0 16px; height: 48px;
+    background: var(--track); border-radius: 99px; color: var(--muted);
+  }
+  .search-box input { flex: 1; border: 0; outline: 0; background: none; color: var(--text); font: inherit; font-size: 15px; }
+  .empty { text-align: center; color: var(--muted); padding: 48px 16px; }
+
+  #toast {
+    position: fixed; left: 50%; bottom: 28px; transform: translate(-50%, 20px);
+    background: var(--text); color: var(--bg);
+    padding: 10px 18px; border-radius: 99px; font-weight: 600;
+    opacity: 0; pointer-events: none; transition: opacity 0.2s, transform 0.2s;
+  }
+  #toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+  @media (max-width: 820px) {
+    body { overflow: auto; }
+    .app { grid-template-columns: 1fr; height: auto; padding: 16px; gap: 16px; }
+    .player { padding: 24px; }
+    .art-wrap { max-width: 360px; margin: 0 auto; }
+    .side { min-height: 70vh; }
+    .row .acts { position: static; transform: none; padding: 0; background: none; opacity: 1; pointer-events: auto; }
+    .row:has(.acts) .d { display: none; }
+  }
+</style>
+</head>
+<body class="paused">
+<div id="backdrop"></div>
+
+<main class="app">
+  <section class="player card">
+    <div class="art-wrap"><img id="art" class="art" alt=""></div>
+    <div class="meta">
+      <h1 id="title">Nothing playing</h1>
+      <p id="artist">Start something on your phone</p>
+    </div>
+    <div>
+      <input id="seek" type="range" min="0" max="1000" value="0" aria-label="Seek">
+      <div class="times"><span id="pos">0:00</span><span id="dur">0:00</span></div>
+    </div>
+    <div class="controls">
+      <button class="icon-btn" id="shuffle" title="Shuffle"><svg viewBox="0 0 24 24"><path d="M10.59 9.17 5.41 4 4 5.41l5.17 5.17 1.42-1.41zM14.5 4l2.04 2.04L4 18.59 5.41 20 17.96 7.46 20 9.5V4h-5.5zm.33 9.41-1.41 1.41 3.13 3.13L14.5 20H20v-5.5l-2.04 2.04-3.13-3.13z"/></svg></button>
+      <button class="icon-btn big" id="prev" title="Previous (Shift+←)"><svg viewBox="0 0 24 24"><path d="M6 6h2v12H6zm3.5 6 8.5 6V6z"/></svg></button>
+      <button class="icon-btn" id="play" title="Play/Pause (Space)"><svg viewBox="0 0 24 24"><path id="play-icon" d="M8 5.14v13.72a1 1 0 0 0 1.5.86l11-6.86a1 1 0 0 0 0-1.72l-11-6.86A1 1 0 0 0 8 5.14z"/></svg></button>
+      <button class="icon-btn big" id="next" title="Next (Shift+→)"><svg viewBox="0 0 24 24"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg></button>
+      <button class="icon-btn" id="repeat" title="Repeat"><svg viewBox="0 0 24 24"><path id="repeat-icon" d="M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4z"/></svg></button>
+    </div>
+    <div class="volume">
+      <svg viewBox="0 0 24 24"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3A4.5 4.5 0 0 0 14 7.97v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>
+      <input id="volume" type="range" min="0" max="100" value="100" aria-label="Volume">
+    </div>
+  </section>
+
+  <section class="side card">
+    <div class="side-head">
+      <div class="tabs">
+        <button class="tab on" data-tab="queue">Queue</button>
+        <button class="tab" data-tab="search">Search</button>
+      </div>
+      <div class="spacer"></div>
+      <button class="pill-btn" id="clear" title="Keep only the current song"><svg viewBox="0 0 24 24"><path d="M5 13h14v-2H5v2zm-2 4h14v-2H3v2zM7 7v2h14V7H7z"/></svg>Clear</button>
+    </div>
+    <div class="pane" id="queue-pane"></div>
+    <div class="pane" id="search-pane" hidden>
+      <form class="search-box" id="search-form">
+        <svg viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27A6.47 6.47 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
+        <input id="search-input" type="search" placeholder="Search songs" autocomplete="off">
+      </form>
+      <div id="results"><div class="empty">Find a song to play or queue</div></div>
+    </div>
+  </section>
+</main>
+<div id="toast"></div>
+
+<script>
+const KEY = new URLSearchParams(location.search).get("key") || "";
+const $ = (id) => document.getElementById(id);
+const ICONS = {
+  play: "M8 5.14v13.72a1 1 0 0 0 1.5.86l11-6.86a1 1 0 0 0 0-1.72l-11-6.86A1 1 0 0 0 8 5.14z",
+  pause: "M7 5h3.5a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1zm6.5 0H17a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1h-3.5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z",
+  repeat: "M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4z",
+  repeatOne: "M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4zm-4-2V9h-1l-2 1v1h1.5v4H13z",
+  up: "M7.41 15.41 12 10.83l4.59 4.58L18 14l-6-6-6 6z",
+  down: "M7.41 8.59 12 13.17l4.59-4.58L18 10l-6 6-6-6z",
+  remove: "M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z",
+  playNext: "M3 10h11v2H3zm0-4h11v2H3zm0 8h7v2H3zm13-1v8l6-4z",
+  add: "M3 10h11v2H3zm0-4h11v2H3zm0 8h7v2H3zm13-1v-3h-2v3h-3v2h3v3h2v-3h3v-2z",
+};
+
+let state = null, queue = [], lastHash = null, syncedAt = 0, dragging = false, failures = 0;
+
+async function api(path, params = {}, method = "GET") {
+  const q = new URLSearchParams({ key: KEY, ...params });
+  const res = await fetch(`${path}?${q}`, { method, cache: "no-store" });
+  if (res.status === 403) throw new Error("bad-key");
+  if (!res.ok) throw new Error(res.status);
+  return res.status === 204 ? null : res.json();
+}
+
+async function cmd(action, params = {}) {
+  try {
+    await api("/api/cmd", { action, ...params }, "POST");
+    poll();
+    return true;
+  } catch {
+    toast("Couldn't do that right now");
+    return false;
+  }
+}
+
+function el(tag, props = {}, ...kids) {
+  const e = Object.assign(document.createElement(tag), props);
+  e.append(...kids.filter((k) => k != null));
+  return e;
+}
+function icon(name) {
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  const p = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  p.setAttribute("d", ICONS[name]);
+  svg.append(p);
+  return svg;
+}
+function iconBtn(name, title, onClick) {
+  return el("button", { className: "icon-btn", title, onclick: (e) => { e.stopPropagation(); onClick(); } }, icon(name));
+}
+function fmt(ms) {
+  const s = Math.max(0, Math.floor(ms / 1000));
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = String(s % 60).padStart(2, "0");
+  return h ? `${h}:${String(m).padStart(2, "0")}:${sec}` : `${m}:${sec}`;
+}
+function setFill(range) {
+  range.style.setProperty("--p", `${(range.value / range.max) * 100}%`);
+}
+let toastTimer;
+function toast(msg) {
+  const t = $("toast");
+  t.textContent = msg;
+  t.classList.add("show");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove("show"), 2200);
+}
+
+function trackRow(track, { current = false, onClick, actions = [] }) {
+  return el("div", { className: "row" + (current ? " current" : ""), onclick: onClick },
+    track.art ? el("img", { src: track.art, loading: "lazy", alt: "" }) : el("div", { className: "ph" }),
+    el("div", { className: "txt" },
+      el("div", { className: "t", textContent: track.title }),
+      el("div", { className: "a", textContent: track.artist })),
+    current && state?.playing ? el("div", { className: "eq" }, el("i"), el("i"), el("i")) : null,
+    track.duration > 0 ? el("div", { className: "d", textContent: fmt(track.duration) }) : null,
+    actions.length ? el("div", { className: "acts" }, ...actions) : null);
+}
+
+function renderQueue() {
+  const pane = $("queue-pane");
+  const index = state?.index ?? -1;
+  pane.replaceChildren();
+  if (index < 0 || !queue.length) {
+    pane.append(el("div", { className: "empty", textContent: "The queue is empty" }));
+    return;
+  }
+  pane.append(el("div", { className: "section", textContent: "Now playing" }));
+  pane.append(trackRow(queue[index], { current: true }));
+
+  let picks = 0;
+  while (queue[index + 1 + picks]?.pick) picks++;
+  for (let i = index + 1; i < queue.length; i++) {
+    if (i === index + 1 && picks) pane.append(el("div", { className: "section", textContent: "Next in queue" }));
+    if (i === index + 1 + picks) {
+      pane.append(el("div", { className: "section", textContent: state.queueTitle ? `Next from: ${state.queueTitle}` : "Next up" }));
+    }
+    pane.append(trackRow(queue[i], {
+      onClick: () => cmd("jump", { a: i }),
+      actions: [
+        i > index + 1 ? iconBtn("up", "Move up", () => cmd("move", { a: i, b: i - 1 })) : null,
+        i < queue.length - 1 ? iconBtn("down", "Move down", () => cmd("move", { a: i, b: i + 1 })) : null,
+        iconBtn("remove", "Remove", () => cmd("remove", { a: i })),
+      ].filter(Boolean),
+    }));
+  }
+}
+
+function render() {
+  const t = state.track;
+  document.body.classList.toggle("paused", !state.playing);
+  $("title").textContent = t?.title ?? "Nothing playing";
+  $("artist").textContent = t?.artist ?? "Start something on your phone";
+  document.title = t ? `${t.title} · Metrolist` : "Metrolist Remote";
+  if (t?.art && $("art").getAttribute("src") !== t.art) {
+    $("art").src = t.art;
+    $("backdrop").style.backgroundImage = `url("${t.art}")`;
+  }
+  $("play-icon").setAttribute("d", state.playing ? ICONS.pause : ICONS.play);
+  $("shuffle").classList.toggle("on", state.shuffle);
+  $("repeat").classList.toggle("on", state.repeat !== 0);
+  $("repeat-icon").setAttribute("d", state.repeat === 1 ? ICONS.repeatOne : ICONS.repeat);
+  if (document.activeElement !== $("volume")) {
+    $("volume").value = Math.round(state.volume * 100);
+    setFill($("volume"));
+  }
+  $("dur").textContent = fmt(state.duration);
+  tick();
+}
+
+function tick() {
+  if (!state || dragging) return;
+  const elapsed = state.playing ? Date.now() - syncedAt : 0;
+  const pos = Math.min(state.position + elapsed, state.duration || Infinity);
+  $("seek").value = state.duration ? (pos / state.duration) * 1000 : 0;
+  setFill($("seek"));
+  $("pos").textContent = fmt(pos);
+}
+
+let polling = false;
+async function poll() {
+  if (polling) return;
+  polling = true;
+  try {
+    const prevIndex = state?.index;
+    state = await api("/api/state");
+    syncedAt = Date.now();
+    failures = 0;
+    if (state.queueHash !== lastHash) {
+      queue = await api("/api/queue");
+      lastHash = state.queueHash;
+      renderQueue();
+    } else if (state.index !== prevIndex) {
+      renderQueue();
+    }
+    render();
+  } catch (e) {
+    if (e.message === "bad-key") {
+      toast("This link is invalid. Copy it again from Metrolist settings");
+    } else if (++failures === 3) {
+      toast("Can't reach your phone. Is Metrolist open on the same Wi-Fi?");
+    }
+  } finally {
+    polling = false;
+  }
+}
+
+// Controls
+$("play").onclick = () => {
+  if (state) { state.playing = !state.playing; render(); }
+  cmd("toggle");
+};
+$("next").onclick = () => cmd("next");
+$("prev").onclick = () => cmd("prev");
+$("shuffle").onclick = () => cmd("shuffle");
+$("repeat").onclick = () => cmd("repeat");
+$("clear").onclick = () => cmd("clear").then((ok) => ok && toast("Queue cleared"));
+
+const seek = $("seek");
+seek.oninput = () => {
+  dragging = true;
+  setFill(seek);
+  if (state) $("pos").textContent = fmt((seek.value / 1000) * state.duration);
+};
+seek.onchange = () => {
+  dragging = false;
+  if (!state) return;
+  const ms = Math.round((seek.value / 1000) * state.duration);
+  state.position = ms;
+  syncedAt = Date.now();
+  cmd("seek", { a: ms });
+};
+
+let volumeTimer;
+$("volume").oninput = (e) => {
+  setFill(e.target);
+  clearTimeout(volumeTimer);
+  volumeTimer = setTimeout(() => cmd("volume", { a: e.target.value }), 120);
+};
+
+// Tabs
+document.querySelectorAll(".tab").forEach((tab) => {
+  tab.onclick = () => {
+    document.querySelectorAll(".tab").forEach((t) => t.classList.toggle("on", t === tab));
+    $("queue-pane").hidden = tab.dataset.tab !== "queue";
+    $("search-pane").hidden = tab.dataset.tab !== "search";
+    if (tab.dataset.tab === "search") $("search-input").focus();
+  };
+});
+
+// Search
+$("search-form").onsubmit = async (e) => {
+  e.preventDefault();
+  const q = $("search-input").value.trim();
+  if (!q) return;
+  const results = $("results");
+  results.replaceChildren(el("div", { className: "empty", textContent: "Searching…" }));
+  try {
+    const songs = await api("/api/search", { q });
+    results.replaceChildren();
+    if (!songs.length) results.append(el("div", { className: "empty", textContent: "No songs found" }));
+    songs.forEach((song) => results.append(trackRow(song, {
+      onClick: () => cmd("play", { id: song.id }).then((ok) => ok && toast(`Playing ${song.title}`)),
+      actions: [
+        iconBtn("playNext", "Play next", () => cmd("playNext", { id: song.id }).then((ok) => ok && toast("Playing next"))),
+        iconBtn("add", "Add to queue", () => cmd("add", { id: song.id }).then((ok) => ok && toast("Added to queue"))),
+      ],
+    })));
+  } catch {
+    results.replaceChildren(el("div", { className: "empty", textContent: "Search failed. Try again" }));
+  }
+};
+
+// Keyboard shortcuts
+document.addEventListener("keydown", (e) => {
+  if (e.target.tagName === "INPUT" && e.target.type !== "range") return;
+  if (e.code === "Space") { e.preventDefault(); $("play").click(); }
+  else if (e.shiftKey && e.key === "ArrowRight") cmd("next");
+  else if (e.shiftKey && e.key === "ArrowLeft") cmd("prev");
+});
+
+// Poll only while the page is visible so the phone stays idle otherwise
+setInterval(() => { if (!document.hidden) poll(); }, 1000);
+setInterval(tick, 250);
+document.addEventListener("visibilitychange", () => { if (!document.hidden) poll(); });
+poll();
+</script>
+</body>
+</html>
