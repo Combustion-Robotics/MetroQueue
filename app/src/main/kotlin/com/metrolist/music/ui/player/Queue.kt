@@ -107,6 +107,7 @@ import com.metrolist.music.constants.ListItemHeight
 import com.metrolist.music.constants.PlayerBackgroundStyle
 import com.metrolist.music.constants.QueueEditLockKey
 import com.metrolist.music.constants.UseNewPlayerDesignKey
+import com.metrolist.music.extensions.isUserPick
 import com.metrolist.music.extensions.metadata
 import com.metrolist.music.extensions.move
 import com.metrolist.music.extensions.toggleRepeatMode
@@ -678,6 +679,15 @@ fun Queue(
                 }
             }
 
+        val userPickCount =
+            remember(queueWindows, currentWindowIndex) {
+                if (currentWindowIndex < 0) {
+                    0
+                } else {
+                    queueWindows.drop(currentWindowIndex + 1).takeWhile { it.mediaItem.isUserPick }.size
+                }
+            }
+
         val reorderableState =
             rememberReorderableLazyListState(
                 lazyListState = lazyListState,
@@ -930,14 +940,33 @@ fun Queue(
                             }
                         }
 
-                        if (locked) {
-                            content()
-                        } else {
-                            SwipeToDismissBox(
-                                state = dismissBoxState,
-                                backgroundContent = {},
-                            ) {
+                        val header =
+                            when {
+                                userPickCount == 0 -> null
+                                index == currentWindowIndex + 1 -> stringResource(R.string.next_in_queue)
+                                index == currentWindowIndex + 1 + userPickCount ->
+                                    queueTitle?.let { stringResource(R.string.next_from, it) }
+                                        ?: stringResource(R.string.next_up)
+                                else -> null
+                            }
+
+                        Column {
+                            if (header != null) {
+                                Text(
+                                    text = header,
+                                    style = MaterialTheme.typography.titleSmall,
+                                    modifier = Modifier.padding(start = 16.dp, top = 8.dp, bottom = 4.dp),
+                                )
+                            }
+                            if (locked) {
                                 content()
+                            } else {
+                                SwipeToDismissBox(
+                                    state = dismissBoxState,
+                                    backgroundContent = {},
+                                ) {
+                                    content()
+                                }
                             }
                         }
                     }

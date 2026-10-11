@@ -55,10 +55,12 @@ import com.metrolist.music.constants.HistoryDuration
 import com.metrolist.music.constants.KeepScreenOn
 import com.metrolist.music.constants.LoudnessLevel
 import com.metrolist.music.constants.LoudnessLevelKey
+import com.metrolist.music.constants.NewRadioAfterAddedSongsKey
 import com.metrolist.music.constants.PauseOnMute
 import com.metrolist.music.constants.PersistentQueueKey
 import com.metrolist.music.constants.PersistentShuffleAcrossQueuesKey
 import com.metrolist.music.constants.PreventDuplicateTracksInQueueKey
+import com.metrolist.music.constants.PrioritizeAddedSongsKey
 import com.metrolist.music.constants.RememberShuffleAndRepeatKey
 import com.metrolist.music.constants.ResumeOnBluetoothConnectKey
 import com.metrolist.music.constants.SeekExtraSeconds
@@ -200,6 +202,14 @@ fun PlayerSettings(
     )
     val (preventDuplicateTracksInQueue, onPreventDuplicateTracksInQueueChange) = rememberPreference(
         PreventDuplicateTracksInQueueKey,
+        defaultValue = false
+    )
+    val (prioritizeAddedSongs, onPrioritizeAddedSongsChange) = rememberPreference(
+        PrioritizeAddedSongsKey,
+        defaultValue = false
+    )
+    val (newRadioAfterAddedSongs, onNewRadioAfterAddedSongsChange) = rememberPreference(
+        NewRadioAfterAddedSongsKey,
         defaultValue = false
     )
     val (stopMusicOnTaskClear, onStopMusicOnTaskClearChange) = rememberPreference(
@@ -976,6 +986,50 @@ fun PlayerSettings(
                         )
                     },
                     onClick = { onPreventDuplicateTracksInQueueChange(!preventDuplicateTracksInQueue) }
+                ),
+                Material3SettingsItem(
+                    icon = painterResource(R.drawable.playlist_play),
+                    title = { Text(stringResource(R.string.prioritize_added_songs)) },
+                    description = { Text(stringResource(R.string.prioritize_added_songs_desc)) },
+                    trailingContent = {
+                        Switch(
+                            checked = prioritizeAddedSongs,
+                            onCheckedChange = onPrioritizeAddedSongsChange,
+                            thumbContent = {
+                                Icon(
+                                    painter = painterResource(
+                                        id = if (prioritizeAddedSongs) R.drawable.check else R.drawable.close
+                                    ),
+                                    contentDescription = null,
+                                    modifier = Modifier.size(SwitchDefaults.IconSize)
+                                )
+                            }
+                        )
+                    },
+                    onClick = { onPrioritizeAddedSongsChange(!prioritizeAddedSongs) }
+                ),
+                Material3SettingsItem(
+                    icon = painterResource(R.drawable.radio),
+                    title = { Text(stringResource(R.string.new_radio_after_added_songs)) },
+                    description = { Text(stringResource(R.string.new_radio_after_added_songs_desc)) },
+                    enabled = prioritizeAddedSongs,
+                    trailingContent = {
+                        Switch(
+                            checked = newRadioAfterAddedSongs,
+                            onCheckedChange = onNewRadioAfterAddedSongsChange,
+                            enabled = prioritizeAddedSongs,
+                            thumbContent = {
+                                Icon(
+                                    painter = painterResource(
+                                        id = if (newRadioAfterAddedSongs) R.drawable.check else R.drawable.close
+                                    ),
+                                    contentDescription = null,
+                                    modifier = Modifier.size(SwitchDefaults.IconSize)
+                                )
+                            }
+                        )
+                    },
+                    onClick = { onNewRadioAfterAddedSongsChange(!newRadioAfterAddedSongs) }
                 ),
                 Material3SettingsItem(
                     icon = painterResource(R.drawable.skip_next),

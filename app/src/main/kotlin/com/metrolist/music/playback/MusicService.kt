@@ -147,12 +147,14 @@ import com.metrolist.music.constants.MediaSessionConstants.CommandToggleLike
 import com.metrolist.music.constants.MediaSessionConstants.CommandToggleRepeatMode
 import com.metrolist.music.constants.MediaSessionConstants.CommandToggleShuffle
 import com.metrolist.music.constants.MediaSessionConstants.CommandToggleStartRadio
+import com.metrolist.music.constants.NewRadioAfterAddedSongsKey
 import com.metrolist.music.constants.PauseListenHistoryKey
 import com.metrolist.music.constants.PauseOnMute
 import com.metrolist.music.constants.PersistentQueueKey
 import com.metrolist.music.constants.PersistentShuffleAcrossQueuesKey
 import com.metrolist.music.constants.PlayerVolumeKey
 import com.metrolist.music.constants.PreventDuplicateTracksInQueueKey
+import com.metrolist.music.constants.PrioritizeAddedSongsKey
 import com.metrolist.music.constants.RememberShuffleAndRepeatKey
 import com.metrolist.music.constants.RepeatModeKey
 import com.metrolist.music.constants.ResumeOnBluetoothConnectKey
@@ -179,10 +181,12 @@ import com.metrolist.music.eq.EqualizerService
 import com.metrolist.music.eq.audio.CustomEqualizerAudioProcessor
 import com.metrolist.music.eq.data.EQProfileRepository
 import com.metrolist.music.extensions.SilentHandler
+import com.metrolist.music.extensions.asUserPick
 import com.metrolist.music.extensions.collect
 import com.metrolist.music.extensions.collectLatest
 import com.metrolist.music.extensions.currentMetadata
 import com.metrolist.music.extensions.findNextMediaItemById
+import com.metrolist.music.extensions.isUserPick
 import com.metrolist.music.extensions.mediaItems
 import com.metrolist.music.extensions.metadata
 import com.metrolist.music.extensions.setOffloadEnabled
@@ -500,6 +504,10 @@ class MusicService :
     private var cachedShufflePlaylistFirst = false
     @Volatile
     private var cachedAutoLoadMore = true
+    @Volatile
+    private var cachedPrioritizeAddedSongs = false
+    @Volatile
+    private var cachedNewRadioAfterAddedSongs = false
 
     // URL cache for stream URLs - class-level so it can be invalidated on errors
     private val songUrlCache = StreamUrlCache()
@@ -1176,6 +1184,12 @@ class MusicService :
         }
         scope.launch {
             dataStore.data.map { it[AutoLoadMoreKey] ?: true }.distinctUntilChanged().collect { cachedAutoLoadMore = it }
+        }
+        scope.launch {
+            dataStore.data.map { it[PrioritizeAddedSongsKey] ?: false }.distinctUntilChanged().collect { cachedPrioritizeAddedSongs = it }
+        }
+        scope.launch {
+            dataStore.data.map { it[NewRadioAfterAddedSongsKey] ?: false }.distinctUntilChanged().collect { cachedNewRadioAfterAddedSongs = it }
         }
         if (startupPrefs!![PersistentQueueKey] ?: true) {
             val queueFile = filesDir.resolve(PERSISTENT_QUEUE_FILE)
@@ -2021,7 +2035,25 @@ class MusicService :
         automixItems.value = emptyList()
     }
 
-    fun playNext(items: List<MediaItem>) {
+    private val prioritizeAddedSongs: Boolean
+        get() = cachedPrioritizeAddedSongs && !listenTogetherManager.isInRoom
+
+    // Indices of the user picks queued right after the current song, in play order
+    private fun upcomingUserPicks(): List<Int> {
+        val timeline = player.currentTimeline
+        if (timeline.isEmpty) return emptyList()
+        return generateSequence(player.currentMediaItemIndex) {
+            timeline.getNextWindowIndex(it, REPEAT_MODE_OFF, player.shuffleModeEnabled).takeIf { i -> i != C.INDEX_UNSET }
+        }.drop(1).takeWhile { player.getMediaItemAt(it).isUserPick }.toList()
+    }
+
+    fun playNext(items: List<MediaItem>) =
+        insertNext(if (prioritizeAddedSongs) items.map { it.asUserPick() } else items, afterUserPicks = false)
+
+    private fun insertNext(
+        items: List<MediaItem>,
+        afterUserPicks: Boolean,
+    ) {
         // If queue is empty or player is idle, play immediately instead
         if (player.mediaItemCount == 0 || player.playbackState == STATE_IDLE) {
             player.setMediaItems(items)
@@ -2049,7 +2081,8 @@ class MusicService :
             }
         }
 
-        val insertIndex = player.currentMediaItemIndex + 1
+        val userPicksAhead = if (afterUserPicks) upcomingUserPicks().size else 0
+        val insertIndex = player.currentMediaItemIndex + 1 + if (player.shuffleModeEnabled) 0 else userPicksAhead
         val shuffleEnabled = player.shuffleModeEnabled
 
         // Insert items immediately after the current item in the window/index space
@@ -2086,17 +2119,19 @@ class MusicService :
 
                 val existingOrder = (prevList + orderAfter).filter { it != currentIndex && it !in newIndices }
 
-                // Build new shuffle order: current -> newly inserted (in insertion order) -> rest
+                // Build new shuffle order: current -> earlier user picks -> newly inserted (in insertion order) -> rest
                 val nextBlock = (insertIndex until (insertIndex + items.size)).toList()
+                val restAfter = orderAfter.filter { it !in newIndices }
                 val finalOrder = IntArray(size)
                 var pos = 0
                 prevList
                     .filter { it !in newIndices }
                     .forEach { if (it in 0 until size) finalOrder[pos++] = it }
                 finalOrder[pos++] = currentIndex
+                restAfter.take(userPicksAhead).forEach { finalOrder[pos++] = it }
                 nextBlock.forEach { if (it in 0 until size) finalOrder[pos++] = it }
-                orderAfter
-                    .filter { it !in newIndices }
+                restAfter
+                    .drop(userPicksAhead)
                     .forEach { if (pos < size) finalOrder[pos++] = it }
 
                 // Fill any missing indices (safety) to ensure a full permutation
@@ -2115,6 +2150,10 @@ class MusicService :
     }
 
     fun addToQueue(items: List<MediaItem>) {
+        if (prioritizeAddedSongs && player.mediaItemCount > 0 && player.playbackState != STATE_IDLE) {
+            insertNext(items.map { it.asUserPick() }, afterUserPicks = true)
+            return
+        }
         if (dataStore.get(PreventDuplicateTracksInQueueKey, false)) {
             val itemIds = items.map { it.mediaId }.toSet()
             val indicesToRemove = mutableListOf<Int>()
@@ -2569,7 +2608,22 @@ class MusicService :
             }
         }
 
+        // Last user pick started: swap the held radio/shuffle songs for a fresh radio based on it
+        val startRadioAfterPicks =
+            prioritizeAddedSongs &&
+                cachedNewRadioAfterAddedSongs &&
+                reason != Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT &&
+                mediaItem?.isUserPick == true &&
+                upcomingUserPicks().isEmpty() &&
+                (player.shuffleModeEnabled || (currentQueue as? YouTubeQueue)?.isRadio == true)
+        if (startRadioAfterPicks) {
+            // shortcut: unplayed shuffled songs are scattered before the current one too, so shuffle history is dropped; keep it if "previous" is missed
+            if (player.shuffleModeEnabled) player.removeMediaItems(0, player.currentMediaItemIndex)
+            startRadioSeamlessly()
+        }
+
         if (cachedAutoLoadMore &&
+            !startRadioAfterPicks &&
             reason != Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT &&
             player.mediaItemCount - player.currentMediaItemIndex <= 5 &&
             currentQueue.hasNextPage() &&
