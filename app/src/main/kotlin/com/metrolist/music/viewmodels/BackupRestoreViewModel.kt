@@ -7,6 +7,7 @@ package com.metrolist.music.viewmodels
 
 import android.content.Context
 import android.content.Intent
+import android.database.sqlite.SQLiteDatabase
 import android.net.Uri
 import android.widget.Toast
 import androidx.datastore.preferences.core.edit
@@ -209,6 +210,15 @@ class BackupRestoreViewModel @Inject constructor(
                     if (backupDbVersion > currentDbVersion) {
                         Timber.tag("RESTORE").w(
                             "Backup DB version $backupDbVersion > current $currentDbVersion, incompatible"
+                        )
+                        kotlinx.coroutines.withContext(Dispatchers.Main) {
+                            Toast.makeText(context, R.string.restore_database_incompatible, Toast.LENGTH_LONG).show()
+                        }
+                        return@launch
+                    }
+                    if (backupDbVersion >= FIRST_MELD_ONLY_DB_VERSION && !hasSpotifyMatchTable(restoreDbPath)) {
+                        Timber.tag("RESTORE").w(
+                            "Backup DB version $backupDbVersion has no spotify_match table, not a Meld database"
                         )
                         kotlinx.coroutines.withContext(Dispatchers.Main) {
                             Toast.makeText(context, R.string.restore_database_incompatible, Toast.LENGTH_LONG).show()
@@ -658,7 +668,23 @@ class BackupRestoreViewModel @Inject constructor(
         return songs
     }
 
+    private fun hasSpotifyMatchTable(dbPath: String): Boolean =
+        try {
+            SQLiteDatabase.openDatabase(dbPath, null, SQLiteDatabase.OPEN_READONLY).use { db ->
+                db.rawQuery(
+                    "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='spotify_match'",
+                    null,
+                ).use { cursor -> cursor.moveToFirst() && cursor.getInt(0) > 0 }
+            }
+        } catch (e: Exception) {
+            Timber.tag("RESTORE").e(e, "Failed to inspect backup database tables")
+            false
+        }
+
     companion object {
         const val SETTINGS_FILENAME = "settings.preferences_pb"
+
+        // Meld and Metrolist share schema version numbers but diverged here; Metrolist backups lack Meld-only tables
+        private const val FIRST_MELD_ONLY_DB_VERSION = 32
     }
 }
