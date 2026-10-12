@@ -190,6 +190,7 @@ class PlayerConnection(
     val error = MutableStateFlow<PlaybackException?>(null)
     val isMuted = service.isMuted
     val currentStreamClient = service.currentStreamClient
+    val currentQobuzSource = service.currentQobuzSource
 
     val waitingForNetworkConnection = service.waitingForNetworkConnection
 

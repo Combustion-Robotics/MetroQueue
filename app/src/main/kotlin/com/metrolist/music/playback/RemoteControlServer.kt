@@ -81,6 +81,7 @@ data class RemoteState(
     val queueTitle: String?,
     val index: Int,
     val queueHash: Int,
+    val source: String? = null,
 )
 
 /** LAN web remote: serves assets/remote/index.html and a small JSON API guarded by [key]. */
@@ -234,6 +235,7 @@ class RemoteControlServer(
             queueTitle = service.queueTitle,
             index = player.getCurrentQueueIndex(),
             queueHash = windows.map { it.uid to it.mediaItem.isUserPick }.hashCode(),
+            source = service.currentQobuzSource.value,
         )
     }
 

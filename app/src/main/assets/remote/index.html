@@ -75,6 +75,13 @@
   #title { margin: 0; font-size: 22px; line-height: 28px; font-weight: 700; letter-spacing: 0; }
   #artist { margin: 2px 0 0; font-size: 16px; line-height: 24px; color: var(--on-surface-variant); letter-spacing: 0.15px; }
   #title, #artist { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #source {
+    display: inline-block; max-width: 100%; margin: 6px 0 0; padding: 2px 8px; border-radius: 6px;
+    background: var(--secondary-container); color: var(--on-secondary-container);
+    font-size: 12px; line-height: 16px; font-weight: 500; letter-spacing: 0.5px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: var(--color-fade);
+  }
+  #source[hidden] { display: none; }
 
   /* Connected button group, like the share/like pair in the app */
   .group { display: flex; gap: 6px; flex: none; }
@@ -223,6 +230,7 @@
       <div class="meta">
         <h1 id="title">Nothing playing</h1>
         <p id="artist">Start something on your phone</p>
+        <p id="source" hidden></p>
       </div>
       <div class="group">
         <button id="shuffle" title="Shuffle"><svg data-icon="shuffle"></svg></button>
@@ -408,6 +416,8 @@ function render() {
   document.body.classList.toggle("paused", !state.playing);
   $("title").textContent = t?.title ?? "Nothing playing";
   $("artist").textContent = t?.artist ?? "Start something on your phone";
+  $("source").textContent = state.source ?? "";
+  $("source").hidden = !state.source;
   document.title = t ? `${t.title} · Meld` : "Meld Remote";
   if (t?.art && $("art").getAttribute("src") !== t.art) $("art").src = t.art;
   if (t && t.id !== themeFor) loadTheme(t.id);

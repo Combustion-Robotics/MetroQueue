@@ -273,6 +273,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.plus
@@ -383,6 +384,15 @@ class MusicService :
     val waitingForNetworkConnection = MutableStateFlow(false)
     private val isNetworkConnected = MutableStateFlow(false)
     val currentStreamClient = MutableStateFlow<String?>(null)
+
+    // Qobuz stream label per mediaId, written by the data source resolver. Resolution can
+    // run ahead of playback (preloading, crossfade), so the label is looked up for the
+    // item that is actually current.
+    private val qobuzSourceLabels = MutableStateFlow<Map<String, String>>(emptyMap())
+    private val qobuzSourceMediaId = MutableStateFlow<String?>(null)
+    val currentQobuzSource: kotlinx.coroutines.flow.StateFlow<String?> =
+        combine(qobuzSourceMediaId, qobuzSourceLabels) { mediaId, labels -> mediaId?.let { labels[it] } }
+            .stateIn(scope, SharingStarted.Eagerly, null)
 
     private lateinit var audioQuality: com.metrolist.music.constants.AudioQuality
 
@@ -2839,6 +2849,8 @@ class MusicService :
             }
         }
         lastTransitionedMediaId = mediaItem?.mediaId
+        qobuzSourceMediaId.value = mediaItem?.mediaId
+        if (mediaItem == null) qobuzSourceLabels.value = emptyMap()
         initialBufferRecoveryJob?.cancel()
         initialBufferRecoveryJob = null
         initialBufferRecoveryAttemptedMediaId = null
@@ -4566,6 +4578,11 @@ class MusicService :
         )
     }
 
+    private fun setQobuzSource(mediaId: String, label: String?) {
+        if (qobuzSourceLabels.value[mediaId] == label) return
+        qobuzSourceLabels.update { if (label == null) it - mediaId else it + (mediaId to label) }
+    }
+
     private fun createDataSourceFactory(
         normalizationProcessor: VolumeNormalizationAudioProcessor,
         playerProvider: () -> ExoPlayer?,
@@ -4607,6 +4624,7 @@ class MusicService :
                         if (dataSpec.length >= 0) dataSpec.length else 1) ||
                         (usePlayerCache && playerCache.isCached(qobuzKey, dataSpec.position, CHUNK_LENGTH)))
                 ) {
+                    if (mediaId !in qobuzSourceLabels.value) setQobuzSource(mediaId, "Qobuz")
                     return@Factory dataSpec.buildUpon().setKey(qobuzKey).build()
                 }
 
@@ -4777,6 +4795,7 @@ class MusicService :
                                 }
                             }
                         }
+                        setQobuzSource(mediaId, qobuzResolved.label)
                         return@Factory dataSpec
                             .buildUpon()
                             .setUri(qobuzResolved.mediaUri.toUri())
@@ -4789,6 +4808,7 @@ class MusicService :
                 // return@Factory above is on the success path.
                 Timber.tag("Qobuz").d("fallback → YouTube for %s (Qobuz did not resolve)", mediaId)
             }
+            setQobuzSource(mediaId, null)
 
             if (!shouldBypassCache) {
                 val usePlayerCache = dataStore.get(EnableSongCacheKey, true)

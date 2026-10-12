@@ -84,6 +84,10 @@ fun ShowMediaInfo(videoId: String) {
 
     val playerConnection = LocalPlayerConnection.current
     val currentStreamClient by playerConnection?.currentStreamClient?.collectAsState() ?: remember { mutableStateOf(null) }
+    val currentQobuzSource by playerConnection?.currentQobuzSource?.collectAsState() ?: remember { mutableStateOf(null) }
+    val playingMetadata by playerConnection?.mediaMetadata?.collectAsState() ?: remember { mutableStateOf(null) }
+    // Only describe the live stream when this dialog is for the current song
+    val qobuzSource = currentQobuzSource?.takeIf { playingMetadata?.id == videoId }
     val context = LocalContext.current
     val artistNameAliases = LocalArtistNameAliases.current
 
@@ -141,47 +145,45 @@ fun ShowMediaInfo(videoId: String) {
                         R.drawable.media3_icon_bookmark_filled,
                     )
 
-                    val iconsList = listOf(
-                        R.drawable.media3_icon_feed,
-                        R.drawable.media3_icon_thumb_up_unfilled,
-                        R.drawable.media3_icon_thumb_down_unfilled,
-                        R.drawable.key,
-                        R.drawable.play,
-                        R.drawable.info,
-                        R.drawable.radio,
-                        R.drawable.gradient,
-                        R.drawable.contrast,
-                        R.drawable.volume_up,
-                        R.drawable.volume_up,
-                        R.drawable.volume_mute,
-                        R.drawable.content_copy
-                    )
-
                     val measuredLufs: Double? = currentFormat?.perceptualLoudnessDb ?: currentFormat?.loudnessDb?.let { it + LoudnessLevel.AGGRESSIVE.targetLufs }
 
-                    val extendedList = if (currentFormat != null) {
-                        listOf(
-                            stringResource(R.string.views) to info?.viewCount?.let(::numberFormatter).orEmpty(),
-                            stringResource(R.string.likes) to info?.like?.let(::numberFormatter).orEmpty(),
-                            stringResource(R.string.dislikes) to info?.dislike?.let(::numberFormatter).orEmpty(),
-                            "Itag" to currentFormat?.itag?.toString(),
-                            stringResource(R.string.stream_client) to currentStreamClient,
-                            stringResource(R.string.mime_type) to currentFormat?.mimeType,
-                            stringResource(R.string.codecs) to currentFormat?.codecs,
-                            stringResource(R.string.bitrate) to currentFormat?.bitrate?.let { "${it / 1000} Kbps" },
-                            stringResource(R.string.sample_rate) to currentFormat?.sampleRate?.let { "$it Hz" },
-                            stringResource(R.string.loudness) to measuredLufs?.let {
-                                String.format(LocalLocale.current.platformLocale, "%.2f dB", it - targetLufs)
-                            },
-                            stringResource(R.string.loudness_level) to getLoudnessLevelLabel(loudnessLevel),
-                            stringResource(R.string.volume) to if (playerConnection != null) "${(playerConnection.player.volume * 100).toInt()}%" else null,
-                            stringResource(R.string.file_size) to
-                                    currentFormat?.contentLength?.let {
-                                        Formatter.formatShortFileSize(
-                                            context,
-                                            it
-                                        )
-                                    },
+                    // The stored format describes the YouTube stream, so its rows are hidden while Qobuz plays
+                    val showYouTubeStream = qobuzSource == null
+                    val extendedList = if (currentFormat != null || qobuzSource != null) {
+                        listOfNotNull(
+                            Triple(stringResource(R.string.views), info?.viewCount?.let(::numberFormatter).orEmpty(), R.drawable.media3_icon_feed),
+                            Triple(stringResource(R.string.likes), info?.like?.let(::numberFormatter).orEmpty(), R.drawable.media3_icon_thumb_up_unfilled),
+                            Triple(stringResource(R.string.dislikes), info?.dislike?.let(::numberFormatter).orEmpty(), R.drawable.media3_icon_thumb_down_unfilled),
+                            qobuzSource?.let { Triple(stringResource(R.string.stream_source), it, R.drawable.play) },
+                            Triple("Itag", currentFormat?.itag?.toString(), R.drawable.key).takeIf { showYouTubeStream },
+                            Triple(stringResource(R.string.stream_client), currentStreamClient, R.drawable.play).takeIf { showYouTubeStream },
+                            Triple(stringResource(R.string.mime_type), currentFormat?.mimeType, R.drawable.info).takeIf { showYouTubeStream },
+                            Triple(stringResource(R.string.codecs), currentFormat?.codecs, R.drawable.radio).takeIf { showYouTubeStream },
+                            Triple(stringResource(R.string.bitrate), currentFormat?.bitrate?.let { "${it / 1000} Kbps" }, R.drawable.gradient).takeIf { showYouTubeStream },
+                            Triple(stringResource(R.string.sample_rate), currentFormat?.sampleRate?.let { "$it Hz" }, R.drawable.contrast).takeIf { showYouTubeStream },
+                            Triple(
+                                stringResource(R.string.loudness),
+                                measuredLufs?.let {
+                                    String.format(LocalLocale.current.platformLocale, "%.2f dB", it - targetLufs)
+                                },
+                                R.drawable.volume_up,
+                            ),
+                            Triple(stringResource(R.string.loudness_level), getLoudnessLevelLabel(loudnessLevel), R.drawable.volume_up),
+                            Triple(
+                                stringResource(R.string.volume),
+                                if (playerConnection != null) "${(playerConnection.player.volume * 100).toInt()}%" else null,
+                                R.drawable.volume_mute,
+                            ),
+                            Triple(
+                                stringResource(R.string.file_size),
+                                currentFormat?.contentLength?.let {
+                                    Formatter.formatShortFileSize(
+                                        context,
+                                        it
+                                    )
+                                },
+                                R.drawable.content_copy,
+                            ).takeIf { showYouTubeStream },
                         )
                     } else {
                         emptyList()
@@ -204,12 +206,12 @@ fun ShowMediaInfo(videoId: String) {
                         )
                     }
 
-                    extendedList.forEachIndexed { index, (label, text) ->
+                    extendedList.forEach { (label, text, icon) ->
                         val displayText = text ?: stringResource(R.string.unknown)
                         cardsExtendedList += Material3SettingsItem(
                             title = { Text(label) },
                             description = { Text(displayText) },
-                            icon = painterResource(iconsList[index]),
+                            icon = painterResource(icon),
                             onClick = {
                                 cm.setPrimaryClip(ClipData.newPlainText("text", displayText))
                                 Toast.makeText(context, R.string.copied, Toast.LENGTH_SHORT).show()

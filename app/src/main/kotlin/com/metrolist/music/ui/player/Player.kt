@@ -322,6 +322,7 @@ fun BottomSheetPlayer(
     val canSkipPrevious by playerConnection.canSkipPrevious.collectAsStateWithLifecycle()
     val canSkipNext by playerConnection.canSkipNext.collectAsStateWithLifecycle()
     val isMuted by playerConnection.isMuted.collectAsStateWithLifecycle()
+    val qobuzSource by playerConnection.currentQobuzSource.collectAsStateWithLifecycle()
 
     val sliderStyle by rememberEnumPreference(SliderStyleKey, SliderStyle.DEFAULT)
     val squigglySlider by rememberPreference(SquigglySliderKey, defaultValue = false)
@@ -1119,6 +1120,21 @@ fun BottomSheetPlayer(
                                 )
                             }
                         }
+                    }
+
+                    qobuzSource?.let { source ->
+                        Text(
+                            text = source,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = TextBackgroundColor,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier =
+                                Modifier
+                                    .padding(top = 4.dp)
+                                    .background(TextBackgroundColor.copy(alpha = 0.15f), RoundedCornerShape(6.dp))
+                                    .padding(horizontal = 8.dp, vertical = 2.dp),
+                        )
                     }
                 }
 
