@@ -126,10 +126,10 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
             )
-            // Local release builds: sign with the persistent debug key and install beside the official app.
-            // CI (CI=true) keeps producing unsigned APKs for its own signing step.
-            if (System.getenv("CI") == null && persistentDebugKeystoreFile.exists()) {
-                signingConfig = signingConfigs.getByName("persistentDebug")
+            // Local release builds (and fork CI that passes METROLIST_DEBUG_KEYSTORE_PATH): sign with the debug key
+            // and install beside the official app. Official CI sets neither, so it keeps producing unsigned APKs.
+            if (workflowDebugKeystoreFile != null || (System.getenv("CI") == null && persistentDebugKeystoreFile.exists())) {
+                signingConfig = signingConfigs.getByName(if (workflowDebugKeystoreFile != null) "workflowDebug" else "persistentDebug")
                 if (applicationIdOverride == null) {
                     applicationIdSuffix = ".dev"
                 }
