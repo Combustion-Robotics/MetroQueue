@@ -12,6 +12,9 @@ import com.metrolist.music.models.MediaMetadata
 interface Queue {
     val preloadItem: MediaMetadata?
 
+    /** Auto-generated recommendations (radio) rather than a fixed list such as an album or playlist. */
+    val isRadio: Boolean get() = false
+
     suspend fun getInitialStatus(): Status
 
     /**

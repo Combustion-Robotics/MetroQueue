@@ -18,6 +18,18 @@ import com.metrolist.music.utils.ArtistNameAliases
 val MediaItem.metadata: MediaMetadata?
     get() = localConfiguration?.tag as? MediaMetadata
 
+private const val USER_PICK_KEY = "user_pick"
+
+// shortcut: flag lives in requestMetadata, which the persisted queue doesn't store, so picks become normal items after a restore
+val MediaItem.isUserPick: Boolean
+    get() = requestMetadata.extras?.getBoolean(USER_PICK_KEY) == true
+
+fun MediaItem.asUserPick(): MediaItem =
+    buildUpon()
+        .setRequestMetadata(
+            requestMetadata.buildUpon().setExtras(Bundle().apply { putBoolean(USER_PICK_KEY, true) }).build(),
+        ).build()
+
 fun Song.toMediaItem(): MediaItem {
     val item = toMediaMetadata().toMediaItem()
     // Locally scanned files play from their on-disk path; everything else streams by video id.

@@ -45,6 +45,8 @@ class SpotifyQueue(
     override val preloadItem: MediaMetadata? = null,
 ) : Queue {
 
+    override val isRadio = true
+
     companion object {
         private const val RESOLVE_BATCH_SIZE = 10
         private const val RECOMMENDATION_TIMEOUT_MS = 4000L

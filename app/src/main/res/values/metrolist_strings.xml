@@ -160,6 +160,13 @@
     <string name="shuffle_playlist_first_desc">When shuffling, play all songs from the current playlist or album before moving to similar content</string>
     <string name="prevent_duplicate_tracks_in_queue">Prevent duplicate tracks in queue</string>
     <string name="prevent_duplicate_tracks_in_queue_desc">When adding a track that\'s already in the queue, it will be moved from its previous position rather than added again</string>
+    <string name="prioritize_added_songs">Play added songs first</string>
+    <string name="prioritize_added_songs_desc">Songs you add play right after the current song, before the rest of the queue</string>
+    <string name="new_radio_after_added_songs">New radio after added songs</string>
+    <string name="new_radio_after_added_songs_desc">When your added songs finish, replace the radio or shuffled songs with a new radio based on the last one</string>
+    <string name="next_in_queue">Next in queue</string>
+    <string name="next_from">Next from: %1$s</string>
+    <string name="next_up">Next up</string>
     <string name="add_to_playlist_position">Add to playlist position</string>
     <string name="playlist_position_beginning">Beginning of playlist</string>
     <string name="playlist_position_beginning_desc">Newly added songs appear before existing songs</string>
