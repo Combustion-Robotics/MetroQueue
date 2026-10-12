@@ -1,63 +1,50 @@
 <div align="center">
 
-<img src="fastlane/metadata/android/en-US/images/icon.png" alt="Metrolist app icon" width="200" />
+<img src="fastlane/metadata/android/en-US/images/icon.png" width="160" height="160" alt="MetroQueue logo" />
 
-# Metrolist
+# MetroQueue
 
-### YouTube Music client for Android
+### A YouTube Music client for Android with a smarter queue and a remote for your PC
 
-<br/>
+[![Latest release](https://img.shields.io/github/v/release/Combustion-Robotics/MetroQueue?style=for-the-badge&labelColor=0d1117)](https://github.com/Combustion-Robotics/MetroQueue/releases/latest)
+[![License](https://img.shields.io/github/license/Combustion-Robotics/MetroQueue?style=for-the-badge&labelColor=0d1117)](LICENSE)
+[![Based on Metrolist](https://img.shields.io/badge/based_on-Metrolist_13.7.0-ED5564?style=for-the-badge&labelColor=0d1117)](https://github.com/MetrolistGroup/Metrolist)
 
-<a href="https://www.blacksmith.sh">
-  <img src="assets/blacksmith-powered.png" alt="CI powered by Blacksmith" width="280" />
-</a>
-
-<br/>
-<br/>
-
-[![Latest release](https://img.shields.io/github/v/release/MetrolistGroup/Metrolist?style=for-the-badge&labelColor=0d1117)](https://github.com/MetrolistGroup/Metrolist/releases)
-[![License](https://img.shields.io/github/license/MetrolistGroup/metrolist?style=for-the-badge&labelColor=0d1117)](https://github.com/MetrolistGroup/Metrolist/blob/main/LICENSE)
-[![Downloads](https://img.shields.io/github/downloads/MetrolistGroup/Metrolist/total?style=for-the-badge&labelColor=0d1117)](https://github.com/MetrolistGroup/Metrolist/releases)
-
-<br/>
-
-[![Discord](https://img.shields.io/badge/Discord-%235865F2.svg?style=for-the-badge&logo=discord&logoColor=white&labelColor=0d1117)](https://dsc.gg/metrolist)
-[![Telegram](https://img.shields.io/badge/Telegram-2CA5E0?style=for-the-badge&logo=telegram&logoColor=white&labelColor=0d1117)](https://t.me/metrolistapp)
-
-<br/>
-
-[**Download**](#download-now) · [**Features**](#features) · [**Translate**](#translations) · [**FAQ**](#faq) · [**Support**](#support-the-project)
-
-</div>
-
-> [!WARNING]
-> # MAINTENANCE MODE
-> Metrolist is currently in maintenance mode. This means we will only be fixing bugs and making minor improvements. Please do not submit PRs for new features or major changes, as they will not be accepted.  
-> The app is **NOT** dead, please stay tuned for updates on our discord (found above).
-
-> [!WARNING]
-> **Regional Restriction** - If YouTube Music is unavailable in your region, this app will not work without a **VPN or proxy** connecting to a supported region.
-
----
-
-<div align="center">
-
-<h1><a id="screenshots"></a>Screenshots</h1>
-
-<img src="fastlane/metadata/android/en-US/images/screenshots/screenshot_1.png" alt="Home screen" width="30%" />
-<img src="fastlane/metadata/android/en-US/images/screenshots/screenshot_2.png" alt="Artist screen" width="30%" />
-<img src="fastlane/metadata/android/en-US/images/screenshots/screenshot_3.png" alt="Recognize music screen" width="30%" />
-<img src="fastlane/metadata/android/en-US/images/screenshots/screenshot_4.png" alt="Listen together screen" width="30%" />
-<img src="fastlane/metadata/android/en-US/images/screenshots/screenshot_5.png" alt="Player screen" width="30%" />
-<img src="fastlane/metadata/android/en-US/images/screenshots/screenshot_6.png" alt="Player lyrics screen" width="30%" />
+[**Download**](#download) · [**What's new**](#whats-different-from-metrolist) · [**Features**](#everything-from-metrolist) · [**Building**](#building) · [**Credits**](#credits)
 
 </div>
 
 ---
 
-<div align="center">
+MetroQueue is a fork of [Metrolist](https://github.com/MetrolistGroup/Metrolist), the Material 3 YouTube Music client. It keeps everything Metrolist does and adds a queue that works the way you'd expect: the songs you pick play first. It also adds a web remote, so you can control the music from any computer on your Wi-Fi.
 
-<h1><a id="features"></a>Features</h1>
+Metrolist is moving on to Metrolist-KMP. MetroQueue carries the Android app forward from Metrolist 13.7.0.
+
+## What's different from Metrolist
+
+#### A queue that respects your picks
+- **Play added songs first.** Songs you add go into your own "Next in queue" block right after the current song, ahead of radio, shuffled or album songs. *Play next* puts a song at the top of your block, and *Add to queue* puts it at the bottom.
+- **Fresh radio after your picks** (optional). When your last pick starts, the held radio or shuffled songs are swapped for a new radio based on that song.
+- **Queue sections.** The queue shows **Next in queue** and **Next from: …** headers, so you can see what you added and what's coming from the playlist or radio.
+- **Clear queue.** One tap keeps the current song playing and removes everything else.
+
+Turn these on in **Settings → Player and audio**.
+
+#### Remote control from your PC
+- Turn on **Settings → Integrations → Remote control** and open the link it shows on any browser on the same Wi-Fi. Nothing to install on the PC.
+- See what's playing with the album art, and control play/pause, skip, seek, volume, shuffle and repeat.
+- Manage the queue: jump to, move or remove songs, or clear it.
+- Search YouTube Music and *Play*, *Play next* or *Add to queue* from the keyboard.
+- The page looks like the app: Material 3, coloured from the current album art, light or dark to match your system.
+- Keyboard shortcuts: <kbd>Space</kbd> play/pause, <kbd>Shift</kbd>+<kbd>←</kbd>/<kbd>→</kbd> previous/next.
+
+> The remote uses plain HTTP and a secret key in the link. Use it on your home network, not on public Wi-Fi.
+
+#### Builds
+- Optimized, signed builds for every change: stable releases from `main`, and a rolling **dev Builds** pre-release from `dev`.
+- The in-app updater checks MetroQueue's releases.
+
+## Everything from Metrolist
 
 <table>
   <tr>
@@ -107,243 +94,74 @@
     <td width="50%" valign="top">
 
 #### Social
-- Listen together with friends in real-time
-- Last.fm integration for scrobbling
-- Safe Discord Rich Presence
+- Listen together with friends in real time
+- Last.fm scrobbling
+- Discord Rich Presence
 
 </td>
     <td width="50%" valign="top">
 
 #### Interface
-- Home screen widget
+- Home screen widgets
 - Light / Dark / Black / Dynamic theme modes
-- Dynamic color + 19 preset color palettes
+- Dynamic color + preset color palettes
 - Built with Material 3
 
 </td>
   </tr>
 </table>
 
-</div>
+## Download
 
----
+| Channel | App | Get it |
+|---|---|---|
+| **Stable** | MetroQueue | [Latest release](https://github.com/Combustion-Robotics/MetroQueue/releases/latest) → `MetroQueue.apk` |
+| **Beta** | MetroQueue Beta | [dev Builds](https://github.com/Combustion-Robotics/MetroQueue/releases/tag/dev-builds), updated on every change to `dev` |
 
-<div align="center">
+- **They're separate apps.** MetroQueue and MetroQueue Beta can be installed at the same time, and next to the official Metrolist.
+- **Coming from Metrolist?** In Metrolist, go to **Settings → Backup and restore**, make a backup, then restore it in MetroQueue.
+- **Android version.** Android 8.0 or newer is required.
 
-<h1><a id="download-now"></a>Download Now</h1>
+## Building
 
-<h2>Stable Release</h2>
+You need JDK 21 and the Android SDK.
 
-<table>
-  <tr>
-    <th align="center">Obtainium</th>
-    <th align="center">IzzyOnDroid</th>
-  </tr>
-  <tr>
-    <td align="center">
-      <a href="https://apps.obtainium.imranr.dev/redirect?r=obtainium://add/https://github.com/MetrolistGroup/Metrolist/">
-        <img src="assets/badges/obtainium.svg" alt="Add Metrolist to Obtainium" height="100">
-      </a>
-    </td>
-    <td align="center">
-      <a href="https://apt.izzysoft.de/fdroid/index/apk/com.metrolist.music">
-        <img src="assets/badges/izzyondroid.svg" alt="Get Metrolist on IzzyOnDroid" height="100">
-      </a>
-    </td>
-  </tr>
-  <tr>
-    <th align="center">OpenAPK</th>
-    <th align="center">GitHub</th>
-  </tr>
-  <tr>
-    <td align="center">
-      <a href="https://www.openapk.net/metrolist/com.metrolist.music/">
-        <img src="assets/badges/openapk.svg" alt="Get Metrolist on OpenAPK" height="100">
-      </a>
-    </td>
-    <td align="center">
-      <a href="https://github.com/MetrolistGroup/Metrolist/releases/latest/download/Metrolist.apk">
-        <img src="assets/badges/github-stable.svg" alt="Get the stable Metrolist release on GitHub" height="100">
-      </a>
-    </td>
-  </tr>
-</table>
+```bash
+git clone https://github.com/Combustion-Robotics/MetroQueue
+cd MetroQueue
+git submodule update --init --recursive
 
-<h2>Nightly Build</h2>
+# Signing key for local builds (keep this file; updates must be signed with the same key)
+keytool -genkeypair -v -keystore app/persistent-debug.keystore -storepass android -keypass android \
+  -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
 
-<table>
-  <tr>
-    <th align="center">GitHub</th>
-  </tr>
-  <tr>
-    <td align="center">
-      <a href="https://github.com/MetrolistGroup/Metrolist/releases/download/nightly/Metrolist-with-Google-Cast.apk">
-        <img src="assets/badges/github-nightly.svg" alt="Get the Metrolist nightly build on GitHub" height="120">
-      </a>
-    </td>
-  </tr>
-</table>
-
-</div>
-
----
-
-<div align="center">
-
-<h1><a id="faq"></a>FAQ</h1>
-
-<h3>Got questions? Check out our <a href="https://metrolist.cc/#faq">FAQ page</a> for answers to the most common ones.</h3>
-
-</div>
-
----
-
-<div align="center">
-
-<h1><a id="translations"></a>Translations</h1>
-
-[![Translation status](https://img.shields.io/weblate/progress/metrolist?style=for-the-badge&labelColor=0d1117)](https://hosted.weblate.org/engage/metrolist/)
-
-<h3>We use Weblate to translate Metrolist. <a href="https://hosted.weblate.org/projects/Metrolist/">Help us bring Metrolist to more people!</a></h3>
-
-<a href="https://hosted.weblate.org/projects/Metrolist/">
-  <img src="https://hosted.weblate.org/widget/Metrolist/horizontal-auto.svg" alt="Translation status" />
-</a>
-
-<h3>Thank you! Every translation makes Metrolist a little more accessible to someone, somewhere in the world.</h3>
-
-</div>
-
----
-
-<div align="center">
-
-<h1><a id="support-the-project"></a>Support the Project</h1>
-
-<h3>Metrolist is free and open-source. If it brings you joy, consider supporting its development!</h3>
-
-#### Monero (XMR)
-
-<img src="assets/XMR.png" alt="Monero QR code" width="150" />
-
-```text
-44XjSELSWcgJTZiCKzjpCQWyXhokrH9RqH3rpp35FkSKi57T25hniHWHQNhLeXyFn3DDYqufmfRB1iEtENerZpJc7xJCcqt
+./gradlew :app:assembleFossRelease   # optimized APK in app/build/outputs/apk/foss/release/
+./gradlew :app:assembleFossDebug     # debug build (much slower UI, for development only)
 ```
 
-#### Buy Me a Coffee
+**Branches:** work happens on `dev`, and `main` gets stable releases. To publish a new release, bump `versionName` in `app/build.gradle.kts` and merge into `main`.
 
-<a href="https://www.buymeacoffee.com/mostafaalagamy">
-  <img src="assets/buymeacoffee.png" alt="Buy Me a Coffee" width="150" />
-</a>
+**CI:** CI needs a `DEV_KEYSTORE_BASE64` repository secret (your keystore, base64-encoded). Without it, builds are signed with a throwaway key. Optional `LASTFM_API_KEY` and `LASTFM_SECRET` secrets enable Last.fm.
 
-</div>
+## Credits
 
----
+MetroQueue exists thanks to **[Metrolist](https://github.com/MetrolistGroup/Metrolist)**, created by **[Mo Agamy](https://github.com/mostafaalagamy)** with [its contributors](https://github.com/MetrolistGroup/Metrolist/graphs/contributors). Almost everything in this app is their work. If you like it, go give them a star.
 
-<div align="center">
+Metrolist itself builds on:
 
-<h1>Special Thanks</h1>
+- **[InnerTune](https://github.com/z-huang/InnerTune)** by Zion Huang and Malopieds
+- **[OuterTune](https://github.com/DD3Boh/OuterTune)** by Davide Garberi and Michael Zh
+- **[Better Lyrics](https://better-lyrics.boidu.dev)**: time-synced, word-by-word lyrics
+- **[metroserver](https://github.com/MetrolistGroup/metroserver)**: the Listen Together backend
+- **[MusicRecognizer](https://github.com/aleksey-saenko/MusicRecognizer)**: music recognition
+- **[zemer-cipher](https://github.com/ZemerTeam/zemer-cipher)**: YouTube cipher deobfuscation and PoToken generation
 
-<h3>Metrolist stands on the shoulders of incredible open-source work.</h3>
+…and the wider open-source community behind every library this app uses.
 
-<h3>Main Inspirations</h3>
+## License
 
-<table>
-  <thead>
-    <tr>
-      <th align="center">Project</th>
-      <th align="center">Authors</th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr>
-      <td align="center"><strong>InnerTune</strong></td>
-      <td align="center"><a href="https://github.com/z-huang">Zion Huang</a> · <a href="https://github.com/Malopieds">Malopieds</a></td>
-    </tr>
-    <tr>
-      <td align="center"><strong>OuterTune</strong></td>
-      <td align="center"><a href="https://github.com/DD3Boh">Davide Garberi</a> · <a href="https://github.com/mikooomich">Michael Zh</a></td>
-    </tr>
-  </tbody>
-</table>
+MetroQueue is free software under the [GNU General Public License v3.0](LICENSE), like Metrolist. You may use, study, share and improve it under the same terms.
 
-<h3>Libraries & Integrations</h3>
+## Disclaimer
 
-<table>
-  <thead>
-    <tr>
-      <th align="center">Project</th>
-      <th align="center">Contribution</th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr>
-      <td align="center"><a href="https://better-lyrics.boidu.dev"><strong>Better Lyrics</strong></a></td>
-      <td>Time-synced lyrics with word-by-word highlighting & YouTube Music integration</td>
-    </tr>
-    <tr>
-      <td align="center"><a href="https://github.com/MetrolistGroup/metroserver"><strong>metroserver</strong></a></td>
-      <td>Listen-together real-time backend</td>
-    </tr>
-    <tr>
-      <td align="center"><a href="https://github.com/aleksey-saenko/MusicRecognizer"><strong>MusicRecognizer</strong></a></td>
-      <td>Music recognition feature & Shazam API integration</td>
-    </tr>
-    <tr>
-      <td align="center"><a href="https://github.com/ZemerTeam/zemer-cipher"><strong>zemer-cipher</strong></a></td>
-      <td>YouTube cipher deobfuscation and PoToken generation</td>
-    </tr>
-    <tr>
-      <td align="center"><a href="https://www.blacksmith.sh"><strong>Blacksmith</strong></a></td>
-      <td>High-performance GitHub Actions runners powering our CI</td>
-    </tr>
-  </tbody>
-</table>
-
-<br/>
-
-<a href="https://www.blacksmith.sh">
-  <img src="assets/blacksmith-powered.png" alt="CI powered by Blacksmith" width="280" />
-</a>
-
-<h3>We also thank the entire open-source community! For every library, tool, and API that powers this project.</h3>
-
-</div>
-
----
-
-<div align="center">
-
-<h1>Contributors</h1>
-
-<h3>This project wouldn't exist without these amazing people!</h3>
-
-<a href="https://github.com/MetrolistGroup/Metrolist/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=MetrolistGroup/Metrolist" alt="Contributors" />
-</a>
-
-</div>
-
----
-
-<div align="center">
-
-<h1>Disclaimer</h1>
-
-This project is **not affiliated with, funded, authorized, endorsed by, or in any way associated** with YouTube, Google LLC, Metrolist Group LLC, or any of their affiliates and subsidiaries.
-
-All trademarks, service marks, and intellectual property rights referenced in this project belong to their respective owners.
-
-</div>
-
----
-
-<div align="center">
-
-<br/>
-
-**Made with ❤️ by [Mo Agamy](https://github.com/mostafaalagamy)**
-
-**This project stands with Palestine 🇵🇸**
-
-</div>
+This project is **not affiliated with, funded, authorized or endorsed by** YouTube, Google LLC, Metrolist Group LLC, or any of their affiliates. All trademarks belong to their respective owners.
