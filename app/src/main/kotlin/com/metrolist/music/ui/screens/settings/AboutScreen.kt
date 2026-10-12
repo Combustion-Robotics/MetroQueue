@@ -25,8 +25,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -90,7 +88,6 @@ private data class Contributor(
     val githubHandle: String,
     val avatarUrl: String = "https://github.com/$githubHandle.png",
     val githubUrl: String = "https://github.com/$githubHandle",
-    val sponsorUrl: String? = null,
     val polygon: RoundedPolygon? = null,
     val favoriteSongVideoId: String? = null
 )
@@ -112,15 +109,14 @@ private val leadDeveloper = Contributor(
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 private val collaborators = listOf(
-    Contributor(name = "Adriel O'Connel", roleRes = R.string.credits_collaborator, githubHandle = "adrielGGmotion", sponsorUrl = "https://github.com/sponsors/adrielGGmotion", polygon = MaterialShapes.Cookie4Sided, favoriteSongVideoId = "m2zUrruKjDQ"),
-    Contributor(name = "Nyx", roleRes = R.string.credits_collaborator, githubHandle = "nyxiereal", sponsorUrl = "https://github.com/sponsors/nyxiereal", polygon = MaterialShapes.Cookie12Sided, favoriteSongVideoId = "zselaN6zPXw"),
+    Contributor(name = "Adriel O'Connel", roleRes = R.string.credits_collaborator, githubHandle = "adrielGGmotion", polygon = MaterialShapes.Cookie4Sided, favoriteSongVideoId = "m2zUrruKjDQ"),
+    Contributor(name = "Nyx", roleRes = R.string.credits_collaborator, githubHandle = "nyxiereal", polygon = MaterialShapes.Cookie12Sided, favoriteSongVideoId = "zselaN6zPXw"),
 )
 
 private val communityLinks = listOf(
-    CommunityLink(R.string.credits_discord, R.drawable.discord, "https://discord.com/invite/zrdbeRG2Mt"),
-    CommunityLink(R.string.credits_telegram, R.drawable.telegram, "https://t.me/metrolistapp"),
-    CommunityLink(R.string.credits_view_repo, R.drawable.github, "https://github.com/MetrolistGroup/Metrolist"),
-    CommunityLink(R.string.credits_license_name, R.drawable.info, "https://github.com/MetrolistGroup/Metrolist/blob/main/LICENSE")
+    CommunityLink(R.string.credits_view_repo, R.drawable.github, "https://github.com/Combustion-Robotics/MetroQueue"),
+    CommunityLink(R.string.credits_based_on_metrolist, R.drawable.github, "https://github.com/MetrolistGroup/Metrolist"),
+    CommunityLink(R.string.credits_license_name, R.drawable.info, "https://github.com/Combustion-Robotics/MetroQueue/blob/main/LICENSE")
 )
 
 private fun handleEasterEggClick(
@@ -387,21 +383,6 @@ fun AboutScreen(
                 
                 DeveloperSocials(uriHandler)
                 
-                Spacer(Modifier.height(16.dp))
-                
-                Button(
-                    onClick = { uriHandler.openUri("https://buymeacoffee.com/mostafaalagamy") },
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = CircleShape,
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.primary,
-                        contentColor = MaterialTheme.colorScheme.onPrimary
-                    )
-                ) {
-                    Icon(painterResource(R.drawable.buymeacoffee), contentDescription = null, modifier = Modifier.size(20.dp))
-                    Spacer(Modifier.width(12.dp))
-                    Text(stringResource(R.string.buy_mo_a_coffee), fontWeight = FontWeight.ExtraBold, fontSize = 16.sp)
-                }
             }
         }
 
@@ -440,23 +421,6 @@ fun AboutScreen(
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            if (contributor.sponsorUrl != null) {
-                                Surface(
-                                    onClick = { uriHandler.openUri(contributor.sponsorUrl) },
-                                    shape = CircleShape,
-                                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
-                                    modifier = Modifier.size(36.dp)
-                                ) {
-                                    Box(contentAlignment = Alignment.Center) {
-                                        Icon(
-                                            painter = painterResource(R.drawable.buymeacoffee),
-                                            contentDescription = null,
-                                            modifier = Modifier.size(20.dp),
-                                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
-                                }
-                            }
                             Icon(
                                 painter = painterResource(R.drawable.github),
                                 contentDescription = null,
@@ -479,9 +443,11 @@ fun AboutScreen(
                 Material3SettingsItem(
                     icon = painterResource(link.iconRes),
                     title = { Text(stringResource(link.labelRes), fontWeight = FontWeight.SemiBold) },
-                    description = if (link.labelRes == R.string.credits_license_name) {
-                        { Text(stringResource(R.string.credits_license_desc)) }
-                    } else null,
+                    description = when (link.labelRes) {
+                        R.string.credits_license_name -> { { Text(stringResource(R.string.credits_license_desc)) } }
+                        R.string.credits_based_on_metrolist -> { { Text(stringResource(R.string.credits_based_on_metrolist_desc)) } }
+                        else -> null
+                    },
                     onClick = { uriHandler.openUri(link.url) }
                 )
             }

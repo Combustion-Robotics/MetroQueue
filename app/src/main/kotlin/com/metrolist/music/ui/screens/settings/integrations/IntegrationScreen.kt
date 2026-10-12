@@ -96,7 +96,7 @@ fun IntegrationScreen(
                             setRemoteEnabled(!remoteEnabled)
                         } else {
                             context.getSystemService(ClipboardManager::class.java)
-                                .setPrimaryClip(ClipData.newPlainText("Metrolist remote", remoteUrl))
+                                .setPrimaryClip(ClipData.newPlainText("MetroQueue remote", remoteUrl))
                             Toast.makeText(context, R.string.link_copied, Toast.LENGTH_SHORT).show()
                         }
                     }

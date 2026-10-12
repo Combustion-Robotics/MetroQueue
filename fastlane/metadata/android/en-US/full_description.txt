@@ -1,4 +1,12 @@
-Material 3 YouTube Music client for Android
+Material 3 YouTube Music client for Android with a smarter queue and a remote control for your PC. Based on Metrolist.
+
+MetroQueue extras:
+
+- Songs you add play first, before radio or shuffled songs
+- Optional fresh radio after your added songs finish
+- "Next in queue" / "Next from" sections in the queue
+- Clear the queue in one tap, keeping the current song
+- Control playback, the queue and search from any browser on your Wi-Fi
 
 Features:
 

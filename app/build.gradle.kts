@@ -7,7 +7,7 @@ if (localPropertiesFile.exists()) {
     localProperties.load(localPropertiesFile.inputStream())
 }
 
-val baseApplicationId = "com.metrolist.music"
+val baseApplicationId = "com.combustion.metroqueue"
 val applicationIdOverride = System.getenv("METROLIST_APPLICATION_ID")?.takeIf { it.isNotBlank() }
 val appNameOverride = System.getenv("METROLIST_APP_NAME")?.takeIf { it.isNotBlank() }
 val buildCommit =
@@ -40,12 +40,12 @@ android {
         applicationId = applicationIdOverride ?: baseApplicationId
         minSdk = 26
         targetSdk = 36
-        versionCode = 153
-        versionName = "13.7.0"
+        versionCode = 1
+        versionName = "1.0.0"
         val baseVersionName = requireNotNull(versionName)
         buildConfigField("String", "BASE_VERSION_NAME", "\"$baseVersionName\"")
         buildCommit?.let { versionName = "$baseVersionName+$it" }
-        resValue("string", "app_name", appNameOverride ?: "Metrolist")
+        resValue("string", "app_name", appNameOverride ?: "MetroQueue")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
@@ -126,16 +126,9 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
             )
-            // Local release builds (and fork CI that passes METROLIST_DEBUG_KEYSTORE_PATH): sign with the debug key
-            // and install beside the official app. Official CI sets neither, so it keeps producing unsigned APKs.
+            // Local release builds and our CI (which passes METROLIST_DEBUG_KEYSTORE_PATH) sign with the project key.
             if (workflowDebugKeystoreFile != null || (System.getenv("CI") == null && persistentDebugKeystoreFile.exists())) {
                 signingConfig = signingConfigs.getByName(if (workflowDebugKeystoreFile != null) "workflowDebug" else "persistentDebug")
-                if (applicationIdOverride == null) {
-                    applicationIdSuffix = ".dev"
-                }
-                if (appNameOverride == null) {
-                    resValue("string", "app_name", "Metrolist Dev")
-                }
             }
         }
         debug {
@@ -144,7 +137,7 @@ android {
             }
             isDebuggable = true
             if (appNameOverride == null) {
-                resValue("string", "app_name", "Metrolist Debug")
+                resValue("string", "app_name", "MetroQueue Debug")
             }
             signingConfig =
                 if (workflowDebugKeystoreFile != null) {
