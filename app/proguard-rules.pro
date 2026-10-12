@@ -168,6 +168,7 @@
 
 ## Ktor Serialization
 -keep class io.ktor.** { *; }
+-dontwarn java.lang.management.**
 -keepclassmembers class io.ktor.** { *; }
 -dontwarn io.ktor.**
 
