@@ -1,8 +1,8 @@
 name: Fork Builds
 
 # Optimized (release) APKs for this fork, signed with the same debug key as local builds.
-# main -> "Metrolist Dev" (com.metrolist.music.dev), dev -> "Metrolist Beta" (com.metrolist.music.beta).
-# Each run replaces the rolling "latest-<branch>" pre-release, so the newest APK is always at the same link.
+# main -> "Metrolist Dev" (com.metrolist.music.dev), published as a normal versioned release v<version>-cr<N>.
+# dev  -> "Metrolist Beta" (com.metrolist.music.beta), published to the rolling "dev Builds" pre-release.
 on:
   push:
     branches: ["main", "dev"]
@@ -60,10 +60,22 @@ jobs:
           LASTFM_API_KEY: ${{ secrets.LASTFM_API_KEY }}
           LASTFM_SECRET: ${{ secrets.LASTFM_SECRET }}
 
-      - name: Rename APK
+      - name: Name the build
+        id: name
         run: |
+          VERSION=$(sed -n 's/^ *versionName = "\(.*\)"/\1/p' app/build.gradle.kts | head -1)
+          if [ "${{ github.ref_name }}" = "main" ]; then
+            # Continue the fork's v<version>-cr<N> numbering
+            LAST=$(git ls-remote --tags origin "refs/tags/v$VERSION-cr*" | sed -n 's/.*-cr\([0-9]*\)$/\1/p' | sort -n | tail -1)
+            TAG="v$VERSION-cr$(( ${LAST:-0} + 1 ))"
+            APK="Metrolist-$TAG-foss.apk"
+          else
+            TAG="dev-builds"
+            APK="Metrolist-Beta-v$VERSION-${GITHUB_SHA::7}-foss.apk"
+          fi
           mkdir -p out
-          mv app/build/outputs/apk/foss/release/*.apk "out/Metrolist-${{ github.ref_name }}-${GITHUB_SHA::7}.apk"
+          mv app/build/outputs/apk/foss/release/*.apk "out/$APK"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v7
@@ -71,12 +83,16 @@ jobs:
           name: Metrolist-${{ github.ref_name }}
           path: out/*.apk
 
-      - name: Publish rolling pre-release
+      - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: latest-${{ github.ref_name }}
+          TAG: ${{ steps.name.outputs.tag }}
         run: |
-          gh release delete "$TAG" --cleanup-tag --yes || true
-          gh release create "$TAG" out/*.apk --prerelease --target "$GITHUB_SHA" \
-            --title "Latest ${{ github.ref_name }} build" \
-            --notes "Built from ${GITHUB_SHA::7} on ${{ github.ref_name }}: $(git log -1 --pretty=%s)"
+          NOTES="Built from ${GITHUB_SHA::7}: $(git log -1 --pretty=%s)"
+          if [ "${{ github.ref_name }}" = "main" ]; then
+            gh release create "$TAG" out/*.apk --target "$GITHUB_SHA" --latest --title "${TAG#v}" --notes "$NOTES"
+          else
+            # One rolling pre-release that always holds the newest dev build
+            gh release delete "$TAG" --cleanup-tag --yes || true
+            gh release create "$TAG" out/*.apk --target "$GITHUB_SHA" --prerelease --latest=false --title "dev Builds" --notes "$NOTES"
+          fi
