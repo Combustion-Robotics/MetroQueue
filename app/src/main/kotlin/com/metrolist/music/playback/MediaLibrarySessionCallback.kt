@@ -42,6 +42,7 @@ import com.metrolist.music.constants.SongSortType
 import com.metrolist.music.db.MusicDatabase
 import com.metrolist.music.db.entities.PlaylistEntity
 import com.metrolist.music.db.entities.Song
+import com.metrolist.music.extensions.mediaItems
 import com.metrolist.music.extensions.toMediaItem
 import com.metrolist.music.extensions.toggleRepeatMode
 import com.metrolist.music.models.toMediaMetadata
@@ -134,9 +135,7 @@ constructor(
         mediaSession: MediaSession,
         controller: MediaSession.ControllerInfo
     ): ListenableFuture<MediaItemsWithStartPosition> =
-        Futures.immediateFuture(
-            MediaItemsWithStartPosition(emptyList(), 0, C.TIME_UNSET),
-        )
+        scope.future { currentQueueForResumption() }
 
     override fun onGetLibraryRoot(
         session: MediaLibrarySession,
@@ -646,7 +645,15 @@ constructor(
     ): ListenableFuture<MediaItemsWithStartPosition> =
         scope.future(Dispatchers.IO) {
             val defaultResult = MediaItemsWithStartPosition(emptyList(), startIndex, startPositionMs)
-            val voiceQuery = mediaItems.firstOrNull()?.requestMetadata?.searchQuery
+            val requestItem = mediaItems.firstOrNull()
+            val voiceQuery = requestItem?.requestMetadata?.searchQuery
+
+            // A query-less play-from-search ("play music") would otherwise clear the queue: resume it instead.
+            if (requestItem != null && voiceQuery != null && voiceQuery.isBlank() &&
+                requestItem.mediaId.isEmpty() && requestItem.requestMetadata.mediaUri == null
+            ) {
+                return@future withContext(Dispatchers.Main) { currentQueueForResumption() }
+            }
 
             val path = if (!voiceQuery.isNullOrBlank()) {
                 listOf(MusicService.SEARCH, voiceQuery, "")
@@ -761,124 +768,143 @@ constructor(
                 MusicService.SEARCH -> {
                     val songId = path.getOrNull(2) ?: return@future defaultResult
                     val searchQuery = path.getOrNull(1) ?: return@future defaultResult
-
-                    val isVoiceSearch = songId.isBlank() && searchQuery.isNotBlank()
-
-                    if (isVoiceSearch) {
-                        //Search if the voiceQuery is about a local playlist and play only the songs in that playlist
-                        val localPlaylists = database.searchPlaylists(searchQuery).first()
-                        val exactLocalPlaylist = localPlaylists.firstOrNull {
-                            it.playlist.name.equals(searchQuery, ignoreCase = true)
-                        }
-                        if (exactLocalPlaylist != null) {
-                            val playlistSongs = database.playlistSongs(exactLocalPlaylist.playlist.id).first()
-                            if (playlistSongs.isNotEmpty()) {
-                                return@future MediaItemsWithStartPosition(
-                                    playlistSongs.map { it.song.toMediaItem() },
-                                    0,
-                                    C.TIME_UNSET
-                                )
-                            }
-                        }
-                    }
-
-                    val searchResults = mutableListOf<Song>()
-                    val limit = context.dataStore.get(AndroidAutoSearchLocalLimitKey, 75)
-
-                    val allLocalSongs = database.searchSongsExtended(searchQuery, limit).first()
-                    searchResults.addAll(allLocalSongs)
-                    if (!isVoiceSearch && songId.isNotBlank() && searchResults.indexOfFirst { it.id == songId } == -1) {
-                        database.song(songId).first()?.let { searchResults.add(it) }
-                    }
-                    
-                    try {
-                        val onlineResults = YouTube.search(searchQuery, YouTube.SearchFilter.FILTER_SONG)
-                            .getOrNull()
-                            ?.items
-                            ?.filterIsInstance<SongItem>()
-                            ?.filterExplicit(context.dataStore.get(HideExplicitKey, false))
-                            ?.filterVideoSongs(context.dataStore.get(HideVideoSongsKey, false))
-                            ?.filter { onlineSong ->
-                                !allLocalSongs.any { localSong ->
-                                    localSong.id == onlineSong.id ||
-                                    (localSong.song.title.equals(onlineSong.title, ignoreCase = true) &&
-                                     localSong.artists.any { artist ->
-                                         onlineSong.artists.any {
-                                             it.name.equals(artist.name, ignoreCase = true)
-                                         }
-                                     })
-                                }
-                            } ?: emptyList()
-
-                        onlineResults.forEach { songItem ->
-                            try {
-                                database.query { insert(songItem.toMediaMetadata()) }
-                                database.song(songItem.id).first()?.let { newSong ->
-                                    searchResults.add(newSong)
-                                }
-                            } catch (e: Exception) {
-                            }
-                        }
-                    } catch (e: Exception) {
-                        reportException(e)
-                    }
-                    
-                    if (searchResults.isEmpty()) {
-                        return@future defaultResult
-                    }
-
-                    val selectedSong =
-                        if (isVoiceSearch) {    //Check if the voiceQuery is about a specific song
-                            val snapshot: List<Song> =
-                                synchronized(searchResults) { searchResults.toList() }
-                            VoiceSearchMatcher.findBest(searchQuery, snapshot)
-                        } else {
-                            searchResults.firstOrNull { it.id == songId }
-                        }
-
-                    if(context.dataStore.get(AutoRadioQueueKey, true)) {
-                        val radioQueue = YouTubeQueue.radio(selectedSong?.toMediaMetadata() ?: return@future defaultResult)
-                        val radioStatus = runCatching {
-                            withContext(Dispatchers.IO) {
-                                radioQueue
-                                    .getInitialStatus()
-                                    .filterExplicit(context.dataStore.get(HideExplicitKey, false))
-                                    .filterVideoSongs(context.dataStore.get(HideVideoSongsKey, false))
-                            }
-                        }.getOrNull()
-
-                        if (radioStatus != null && radioStatus.items.isNotEmpty()) {
-                            withContext(Dispatchers.Main) {
-                                service.adoptQueue(radioQueue, radioStatus.title, radioStatus.items.size) //Used to make the radio queue load more songs when near the end
-                            }
-                            return@future MediaItemsWithStartPosition(
-                                radioStatus.items,
-                                radioStatus.items.indexOfFirst { it.mediaId == selectedSong.id }.coerceAtLeast(0),
-                                C.TIME_UNSET,
-                            )
-                        }
-                    }
-
-                    val items = listOf(selectedSong?.toMediaItem() ?: return@future defaultResult)
-                    withContext(Dispatchers.Main) {
-                        service.adoptQueue(
-                            ListQueue(
-                                title = selectedSong.song.title,
-                                items = items,
-                            ),
-                            title = selectedSong.song.title,
-                        )
-                    }
-                    MediaItemsWithStartPosition(
-                        items,
-                        0,
-                        C.TIME_UNSET
-                    )
+                    resolveSearch(searchQuery, songId) ?: defaultResult
                 }
 
                 else -> defaultResult
             }
         }
+
+    /** Resolves a free-text voice request the same way as a media-session play-from-search. */
+    suspend fun resolveVoiceQuery(query: String): MediaItemsWithStartPosition? =
+        withContext(Dispatchers.IO) { resolveSearch(query.trim(), "") }
+
+    /** The current (or just-restored persisted) queue, for "play music" requests that carry no query. Main thread only. */
+    private suspend fun currentQueueForResumption(): MediaItemsWithStartPosition {
+        if (!service.awaitQueueLoaded()) return MediaItemsWithStartPosition(emptyList(), 0, C.TIME_UNSET)
+        val player = service.player
+        return MediaItemsWithStartPosition(player.mediaItems, player.currentMediaItemIndex, player.currentPosition)
+    }
+
+    private suspend fun resolveSearch(searchQuery: String, songId: String): MediaItemsWithStartPosition? {
+        val isVoiceSearch = songId.isBlank() && searchQuery.isNotBlank()
+
+        if (isVoiceSearch) {
+            //Search if the voiceQuery is about a local playlist and play only the songs in that playlist
+            val localPlaylists = database.searchPlaylists(searchQuery).first()
+            val exactLocalPlaylist = localPlaylists.firstOrNull {
+                it.playlist.name.equals(searchQuery, ignoreCase = true)
+            }
+            if (exactLocalPlaylist != null) {
+                val playlistSongs = database.playlistSongs(exactLocalPlaylist.playlist.id).first()
+                if (playlistSongs.isNotEmpty()) {
+                    return MediaItemsWithStartPosition(
+                        playlistSongs.map { it.song.toMediaItem() },
+                        0,
+                        C.TIME_UNSET
+                    )
+                }
+            }
+        }
+
+        val searchResults = mutableListOf<Song>()
+        val limit = context.dataStore.get(AndroidAutoSearchLocalLimitKey, 75)
+
+        val allLocalSongs = database.searchSongsExtended(searchQuery, limit).first()
+        searchResults.addAll(allLocalSongs)
+        if (!isVoiceSearch && songId.isNotBlank() && searchResults.indexOfFirst { it.id == songId } == -1) {
+            database.song(songId).first()?.let { searchResults.add(it) }
+        }
+        
+        var topOnlineId: String? = null
+        try {
+            val onlineResults = YouTube.search(searchQuery, YouTube.SearchFilter.FILTER_SONG)
+                .getOrNull()
+                ?.items
+                ?.filterIsInstance<SongItem>()
+                ?.filterExplicit(context.dataStore.get(HideExplicitKey, false))
+                ?.filterVideoSongs(context.dataStore.get(HideVideoSongsKey, false))
+                ?.also { topOnlineId = it.firstOrNull()?.id }
+                ?.filter { onlineSong ->
+                    !allLocalSongs.any { localSong ->
+                        localSong.id == onlineSong.id ||
+                        (localSong.song.title.equals(onlineSong.title, ignoreCase = true) &&
+                         localSong.artists.any { artist ->
+                             onlineSong.artists.any {
+                                 it.name.equals(artist.name, ignoreCase = true)
+                             }
+                         })
+                    }
+                } ?: emptyList()
+
+            onlineResults.forEach { songItem ->
+                try {
+                    database.query { insert(songItem.toMediaMetadata()) }
+                    database.song(songItem.id).first()?.let { newSong ->
+                        searchResults.add(newSong)
+                    }
+                } catch (e: Exception) {
+                }
+            }
+        } catch (e: Exception) {
+            reportException(e)
+        }
+        
+        if (searchResults.isEmpty()) {
+            return null
+        }
+
+        val selectedSong =
+            if (isVoiceSearch) {    //Check if the voiceQuery is about a specific song
+                val snapshot: List<Song> =
+                    synchronized(searchResults) { searchResults.toList() }
+                // No confident match (e.g. an artist-only query): play YouTube's top result instead of nothing.
+                VoiceSearchMatcher.findBest(searchQuery, snapshot)
+                    ?: snapshot.firstOrNull { it.id == topOnlineId }
+                    ?: snapshot.first()
+            } else {
+                searchResults.firstOrNull { it.id == songId }
+            }
+
+        if(context.dataStore.get(AutoRadioQueueKey, true)) {
+            val radioQueue = YouTubeQueue.radio(selectedSong?.toMediaMetadata() ?: return null)
+            val radioStatus = runCatching {
+                withContext(Dispatchers.IO) {
+                    radioQueue
+                        .getInitialStatus()
+                        .filterExplicit(context.dataStore.get(HideExplicitKey, false))
+                        .filterVideoSongs(context.dataStore.get(HideVideoSongsKey, false))
+                }
+            }.getOrNull()
+
+            if (radioStatus != null && radioStatus.items.isNotEmpty()) {
+                withContext(Dispatchers.Main) {
+                    service.adoptQueue(radioQueue, radioStatus.title, radioStatus.items.size) //Used to make the radio queue load more songs when near the end
+                }
+                return MediaItemsWithStartPosition(
+                    radioStatus.items,
+                    radioStatus.items.indexOfFirst { it.mediaId == selectedSong.id }.coerceAtLeast(0),
+                    C.TIME_UNSET,
+                )
+            }
+        }
+
+        val items = listOf(selectedSong?.toMediaItem() ?: return null)
+        withContext(Dispatchers.Main) {
+            service.adoptQueue(
+                ListQueue(
+                    title = selectedSong.song.title,
+                    items = items,
+                ),
+                title = selectedSong.song.title,
+            )
+        }
+        return MediaItemsWithStartPosition(
+            items,
+            0,
+            C.TIME_UNSET
+        )
+    }
 
     private fun drawableUri(
         @DrawableRes id: Int,

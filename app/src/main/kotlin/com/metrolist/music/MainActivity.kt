@@ -9,6 +9,7 @@ import android.Manifest
 import android.annotation.SuppressLint
 import android.app.ForegroundServiceStartNotAllowedException
 import android.app.PendingIntent
+import android.app.SearchManager
 import android.content.ComponentName
 import android.content.Intent
 import android.content.ServiceConnection
@@ -16,6 +17,7 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import android.os.IBinder
+import android.provider.MediaStore
 import android.view.View
 import android.view.WindowManager
 import android.widget.Toast
@@ -247,6 +249,9 @@ class MainActivity : FragmentActivity() {
         const val EXTRA_AUTO_START_RECOGNITION = "auto_start_recognition"
         const val EXTRA_WIDGET_TARGET_TYPE = "widget_target_type"
         const val EXTRA_WIDGET_TARGET_ID = "widget_target_id"
+
+        // MediaStore.Audio.Playlists.ENTRY_CONTENT_TYPE (deprecated); the EXTRA_MEDIA_FOCUS value for playlist requests.
+        private const val PLAYLIST_FOCUS = "vnd.android.cursor.item/playlist"
     }
 
     @Inject
@@ -263,6 +268,7 @@ class MainActivity : FragmentActivity() {
 
     private lateinit var navController: NavHostController
     private var pendingIntent: Intent? = null
+    private var pendingVoiceQuery: String? = null
     private var latestVersionName by mutableStateOf(BuildConfig.BASE_VERSION_NAME)
 
     // Keep PlayerConnection as regular property - NOT mutableStateOf to prevent UI recomposition
@@ -284,6 +290,7 @@ class MainActivity : FragmentActivity() {
                     playerConnection = PlayerConnection(this@MainActivity, service, database, lifecycleScope)
                     playerConnectionSnapshot = playerConnection
                     listenTogetherManager.setPlayerConnection(playerConnection)
+                    playPendingVoiceQuery()
                 }
             }
 
@@ -383,6 +390,7 @@ class MainActivity : FragmentActivity() {
         super.onNewIntent(intent)
         if (::navController.isInitialized) {
             handleWidgetTargetIntent(intent, navController)
+            handlePlayFromSearchIntent(intent)
             handleDeepLinkIntent(intent, navController)
         } else {
             pendingIntent = intent
@@ -983,11 +991,13 @@ class MainActivity : FragmentActivity() {
                     if (pendingIntent != null) {
                         handleWidgetTargetIntent(pendingIntent!!, navController)
                         handleRecognitionIntent(pendingIntent!!, navController)
+                        handlePlayFromSearchIntent(pendingIntent!!)
                         handleDeepLinkIntent(pendingIntent!!, navController)
                         pendingIntent = null
                     } else {
                         handleWidgetTargetIntent(intent, navController)
                         handleRecognitionIntent(intent, navController)
+                        handlePlayFromSearchIntent(intent)
                         handleDeepLinkIntent(intent, navController)
                     }
                 }
@@ -997,6 +1007,7 @@ class MainActivity : FragmentActivity() {
                         Consumer<Intent> { intent ->
                             handleWidgetTargetIntent(intent, navController)
                             handleRecognitionIntent(intent, navController)
+                            handlePlayFromSearchIntent(intent)
                             handleDeepLinkIntent(intent, navController)
                         }
 
@@ -1579,6 +1590,41 @@ class MainActivity : FragmentActivity() {
         } ?: return
 
         navController.navigate(targetRoute.route)
+    }
+
+    /** Voice assistants (Gemini / Google Assistant) send "play X on MetroQueue" as MEDIA_PLAY_FROM_SEARCH. */
+    private fun handlePlayFromSearchIntent(intent: Intent) {
+        if (intent.action != MediaStore.INTENT_ACTION_MEDIA_PLAY_FROM_SEARCH) return
+        intent.action = null
+        // Reopening from Recents redelivers the original intent; don't replay the request.
+        if ((intent.flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY) != 0) return
+
+        val playlist = intent.getStringExtra(MediaStore.EXTRA_MEDIA_PLAYLIST)?.trim()
+        pendingVoiceQuery =
+            if (intent.getStringExtra(MediaStore.EXTRA_MEDIA_FOCUS) == PLAYLIST_FOCUS && !playlist.isNullOrEmpty()) {
+                playlist
+            } else {
+                intent.getStringExtra(SearchManager.QUERY)?.trim().orEmpty().ifEmpty {
+                    listOf(
+                        MediaStore.EXTRA_MEDIA_TITLE,
+                        MediaStore.EXTRA_MEDIA_ARTIST,
+                        MediaStore.EXTRA_MEDIA_ALBUM,
+                        MediaStore.EXTRA_MEDIA_PLAYLIST,
+                    ).mapNotNull { key -> intent.getStringExtra(key)?.trim()?.takeIf { it.isNotEmpty() } }
+                        .distinct()
+                        .joinToString(" ")
+                }
+            }
+        playPendingVoiceQuery()
+    }
+
+    /** Runs a pending voice request once the service connection exists (it may not yet on cold start). */
+    private fun playPendingVoiceQuery() {
+        val query = pendingVoiceQuery ?: return
+        val connection = playerConnection ?: return
+        pendingVoiceQuery = null
+        if (connection.shouldBlockPlaybackChanges?.invoke() == true) return
+        connection.service.playFromVoiceSearch(query)
     }
 
     private fun handleDeepLinkIntent(

@@ -254,6 +254,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.plus
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import okhttp3.OkHttpClient
 import timber.log.Timber
 import java.io.ObjectInputStream
@@ -1874,6 +1875,42 @@ class MusicService :
         currentQueue = queue
         queueTitle = title
         originalQueueSize = initialQueueSize
+    }
+
+    /**
+     * Returns whether the player has a queue, briefly waiting for the persisted queue that
+     * onCreate restores asynchronously so cold-start "play" requests have something to resume.
+     */
+    suspend fun awaitQueueLoaded(): Boolean {
+        playerInitialized.first { it }
+        if (player.mediaItemCount > 0) return true
+        val hasPersistedQueue = withContext(Dispatchers.IO) {
+            dataStore.get(PersistentQueueKey, true) && filesDir.resolve(PERSISTENT_QUEUE_FILE).exists()
+        }
+        if (!hasPersistedQueue) return false
+        return withTimeoutOrNull(3.seconds) {
+            while (player.mediaItemCount == 0) delay(100)
+            true
+        } ?: false
+    }
+
+    /** Plays a voice request (MEDIA_PLAY_FROM_SEARCH); a blank query resumes the current queue. */
+    fun playFromVoiceSearch(query: String) {
+        scope.launch(SilentHandler) {
+            // Also lets a cold-start restore land first so it can't overwrite the voice result.
+            val hasQueue = awaitQueueLoaded()
+            if (query.isBlank()) {
+                if (!hasQueue) return@launch
+            } else {
+                val result = mediaLibrarySessionCallback.resolveVoiceQuery(query) ?: return@launch
+                player.setMediaItems(result.mediaItems, result.startIndex, result.startPositionMs)
+            }
+            when (player.playbackState) {
+                STATE_IDLE -> player.prepare()
+                Player.STATE_ENDED -> player.seekToDefaultPosition()
+            }
+            player.playWhenReady = true
+        }
     }
 
     fun startRadioSeamlessly() {
