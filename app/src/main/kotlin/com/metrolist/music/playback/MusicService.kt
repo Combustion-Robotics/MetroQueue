@@ -41,6 +41,7 @@ import androidx.core.content.getSystemService
 import androidx.core.net.toUri
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
+import androidx.media3.common.FlagSet
 import androidx.media3.common.Format
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
@@ -5377,6 +5378,18 @@ class MusicService :
         fadingAudioSessionId = fadingPlayer?.audioSessionId ?: C.AUDIO_SESSION_ID_UNSET
 
         openAudioEffectSession()
+
+        // Likewise its queue and play-state events fired before the swap; replay what the service
+        // reacts to (current metadata, widget, Discord, scrobbling, scheduling the next transition).
+        onEvents(
+            player,
+            Player.Events(
+                FlagSet
+                    .Builder()
+                    .addAll(EVENT_TIMELINE_CHANGED, Player.EVENT_MEDIA_ITEM_TRANSITION, Player.EVENT_IS_PLAYING_CHANGED)
+                    .build(),
+            ),
+        )
 
         crossfadeJob =
             scope.launch {
