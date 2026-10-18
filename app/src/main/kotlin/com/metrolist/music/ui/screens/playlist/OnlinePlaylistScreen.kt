@@ -261,7 +261,7 @@ fun OnlinePlaylistScreen(
                         }
                     }
 
-                    itemsIndexed(filteredSongs) { index, (_, songItem) ->
+                    itemsIndexed(filteredSongs) { index, (playlistIndex, songItem) ->
                         val onCheckedChange: (Boolean) -> Unit = {
                             if (it) {
                                 selection.add(songItem.id)
@@ -331,8 +331,9 @@ fun OnlinePlaylistScreen(
                                     )
                                 } else {
                                     IconButton(onClick = {
+                                        val nextSong = songs.getOrNull(playlistIndex + 1)?.toMediaMetadata()
                                         menuState.show {
-                                            YouTubeSongMenu(songItem, menuState::dismiss)
+                                            YouTubeSongMenu(songItem, menuState::dismiss, nextSong = nextSong)
                                         }
                                     }) {
                                         Icon(painterResource(R.drawable.more_vert), null)

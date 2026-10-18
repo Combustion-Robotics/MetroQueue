@@ -81,6 +81,7 @@ import com.metrolist.music.db.entities.PodcastEntity
 import com.metrolist.music.db.entities.Song
 import com.metrolist.music.db.entities.SpeedDialItem
 import com.metrolist.music.extensions.toMediaItem
+import com.metrolist.music.models.MediaMetadata
 import com.metrolist.music.models.toMediaMetadata
 import com.metrolist.music.playback.ExoDownloadService
 import com.metrolist.music.playback.queues.YouTubeQueue
@@ -111,6 +112,7 @@ fun SongMenu(
     playlistBrowseId: String? = null,
     onDismiss: () -> Unit,
     isFromCache: Boolean = false,
+    nextSong: MediaMetadata? = null,
 ) {
     val navController = LocalNavController.current
     val context = LocalContext.current
@@ -1120,6 +1122,26 @@ fun SongMenu(
                                 },
                             ),
                         )
+                        if (nextSong != null) {
+                            add(
+                                Material3MenuItemData(
+                                    title = { Text(text = stringResource(R.string.transition_to_next_song)) },
+                                    description = { Text(text = stringResource(R.string.transition_to_next_song_desc)) },
+                                    icon = {
+                                        Icon(
+                                            painter = painterResource(R.drawable.linear_scale),
+                                            contentDescription = null,
+                                        )
+                                    },
+                                    onClick = {
+                                        onDismiss()
+                                        bottomSheetPageState.show {
+                                            TransitionEditor(song.toMediaMetadata(), nextSong, bottomSheetPageState::dismiss)
+                                        }
+                                    },
+                                ),
+                            )
+                        }
                         add(
                             Material3MenuItemData(
                                 title = { Text(text = stringResource(R.string.details)) },

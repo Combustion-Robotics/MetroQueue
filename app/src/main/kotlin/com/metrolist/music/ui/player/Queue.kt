@@ -113,6 +113,7 @@ import com.metrolist.music.extensions.move
 import com.metrolist.music.extensions.toggleRepeatMode
 import com.metrolist.music.listentogether.RoomRole
 import com.metrolist.music.models.MediaMetadata
+import com.metrolist.music.playback.mix.CustomTransition
 import com.metrolist.music.ui.component.ActionPromptDialog
 import com.metrolist.music.ui.component.BottomSheet
 import com.metrolist.music.ui.component.BottomSheetState
@@ -658,7 +659,20 @@ fun Queue(
         val queueTitle by playerConnection.queueTitle.collectAsStateWithLifecycle()
         val queueWindows by playerConnection.queueWindows.collectAsStateWithLifecycle()
         val automix by playerConnection.service.automixItems.collectAsStateWithLifecycle()
+        val customTransitions by playerConnection.service.customTransitions.transitions.collectAsStateWithLifecycle()
         val mutableQueueWindows = remember { mutableStateListOf<Timeline.Window>() }
+        // Queue items followed by a song they have a custom transition into, worked out once per change
+        val customTransitionUids =
+            remember(queueWindows, customTransitions) {
+                if (customTransitions.isEmpty()) {
+                    emptySet<Any>()
+                } else {
+                    queueWindows
+                        .zipWithNext()
+                        .filter { (current, next) -> CustomTransition.pairKey(current.mediaItem.mediaId, next.mediaItem.mediaId) in customTransitions }
+                        .mapTo(HashSet<Any>()) { it.first.uid }
+                }
+            }
         val queueLength =
             remember(queueWindows) {
                 queueWindows.sumOf { it.mediaItem.metadata!!.duration }
@@ -855,6 +869,14 @@ fun Queue(
                                                 onCheckedChange = onCheckedChange,
                                             )
                                         } else {
+                                            if (window.uid in customTransitionUids) {
+                                                Icon(
+                                                    painter = painterResource(R.drawable.linear_scale),
+                                                    contentDescription = stringResource(R.string.transition_custom),
+                                                    tint = MaterialTheme.colorScheme.primary,
+                                                    modifier = Modifier.size(16.dp),
+                                                )
+                                            }
                                             if (!isListenTogetherGuest) {
                                                 IconButton(
                                                     onClick = {
@@ -870,6 +892,7 @@ fun Queue(
                                                                     }
                                                                 },
                                                                 onDismiss = menuState::dismiss,
+                                                                nextMediaMetadata = mutableQueueWindows.getOrNull(index + 1)?.mediaItem?.metadata,
                                                             )
                                                         }
                                                     },

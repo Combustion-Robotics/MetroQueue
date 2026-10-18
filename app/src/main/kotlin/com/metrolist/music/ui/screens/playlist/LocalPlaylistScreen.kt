@@ -120,6 +120,7 @@ import com.metrolist.music.db.entities.PlaylistSong
 import com.metrolist.music.db.entities.PlaylistSongMap
 import com.metrolist.music.extensions.move
 import com.metrolist.music.extensions.toMediaItem
+import com.metrolist.music.models.toMediaMetadata
 import com.metrolist.music.playback.ExoDownloadService
 import com.metrolist.music.playback.queues.ListQueue
 import com.metrolist.music.ui.component.ActionPromptDialog
@@ -623,12 +624,21 @@ fun LocalPlaylistScreen(
                                 } else {
                                     IconButton(
                                         onClick = {
+                                            // The song after it when the playlist plays, whatever is filtered
+                                            val nextSong =
+                                                songs
+                                                    .indexOfFirst { it.map.id == song.map.id }
+                                                    .takeIf { it >= 0 }
+                                                    ?.let { songs.getOrNull(it + 1) }
+                                                    ?.song
+                                                    ?.toMediaMetadata()
                                             menuState.show {
                                                 SongMenu(
                                                     originalSong = song.song,
                                                     playlistSong = song,
                                                     playlistBrowseId = playlist?.playlist?.browseId,
                                                     onDismiss = menuState::dismiss,
+                                                    nextSong = nextSong,
                                                 )
                                             }
                                         },

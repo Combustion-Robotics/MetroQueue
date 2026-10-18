@@ -386,6 +386,24 @@
     <string name="mix_transition_rise_desc">The current song builds up, then the next one drops in</string>
     <string name="mix_transition_cut">Cut</string>
     <string name="mix_transition_cut_desc">No overlap, switches where the song ends</string>
+    <string name="transition_to_next_song">Transition to next song…</string>
+    <string name="transition_to_next_song_desc">Set how this song blends into the one after it</string>
+    <string name="transition_title">Transition</string>
+    <string name="transition_songs">%1$s → %2$s</string>
+    <string name="transition_bpm">%1$s → %2$s BPM</string>
+    <string name="transition_note">Plays whenever these two songs play one after the other, with Crossfade or Smart mix on</string>
+    <string name="transition_mix_off_note">Mix is off in settings. This transition plays once Crossfade or Smart mix is on</string>
+    <string name="transition_length">Length</string>
+    <string name="transition_end_at">End this song at</string>
+    <string name="transition_switch_at">Switch at</string>
+    <string name="transition_end_auto">Where its audio ends</string>
+    <string name="transition_start_at">Start next song at</string>
+    <string name="transition_start_auto">After any silence at its start</string>
+    <string name="transition_match_tempo">Match tempo</string>
+    <string name="transition_match_tempo_desc">Plays the next song slightly faster or slower while they overlap when the tempos are close</string>
+    <string name="transition_match_tempo_unknown">Needs both tempos, which are detected from cached or downloaded songs</string>
+    <string name="transition_preview_unavailable">Play this song with the next one after it to preview</string>
+    <string name="transition_custom">Custom transition to the next song</string>
 
     <!-- Romanization Settings -->
     <string name="lyrics_romanize_title">Romanization</string>

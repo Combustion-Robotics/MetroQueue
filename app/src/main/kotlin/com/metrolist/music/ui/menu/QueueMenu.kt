@@ -69,6 +69,7 @@ import com.metrolist.music.models.toMediaMetadata
 import com.metrolist.music.playback.ExoDownloadService
 import com.metrolist.music.playback.queues.YouTubeQueue
 import com.metrolist.music.ui.component.BottomSheetState
+import com.metrolist.music.ui.component.LocalBottomSheetPageState
 import com.metrolist.music.ui.component.ListDialog
 import com.metrolist.music.ui.component.Material3MenuGroup
 import com.metrolist.music.ui.component.Material3MenuItemData
@@ -85,6 +86,7 @@ fun QueueMenu(
     playerBottomSheetState: BottomSheetState,
     onShowDetailsDialog: () -> Unit,
     onDismiss: () -> Unit,
+    nextMediaMetadata: MediaMetadata? = null,
 ) {
     mediaMetadata ?: return
     val navController = LocalNavController.current
@@ -93,6 +95,7 @@ fun QueueMenu(
     val playerConnection = LocalPlayerConnection.current ?: return
     val coroutineScope = rememberCoroutineScope()
     val syncUtils = LocalSyncUtils.current
+    val bottomSheetPageState = LocalBottomSheetPageState.current
 
     val downloadUtil = LocalDownloadUtil.current
     val librarySong by database.song(mediaMetadata.id).collectAsStateWithLifecycle(initialValue = null)
@@ -374,6 +377,32 @@ fun QueueMenu(
                     )
                 )
             )
+        }
+
+        if (nextMediaMetadata != null) {
+            item { Spacer(modifier = Modifier.height(12.dp)) }
+            item {
+                Material3MenuGroup(
+                    items = listOf(
+                        Material3MenuItemData(
+                            title = { Text(text = stringResource(R.string.transition_to_next_song)) },
+                            description = { Text(text = stringResource(R.string.transition_to_next_song_desc)) },
+                            icon = {
+                                Icon(
+                                    painter = painterResource(R.drawable.linear_scale),
+                                    contentDescription = null,
+                                )
+                            },
+                            onClick = {
+                                onDismiss()
+                                bottomSheetPageState.show {
+                                    TransitionEditor(mediaMetadata, nextMediaMetadata, bottomSheetPageState::dismiss)
+                                }
+                            }
+                        )
+                    )
+                )
+            }
         }
 
         item { Spacer(modifier = Modifier.height(12.dp)) }

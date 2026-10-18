@@ -97,7 +97,8 @@ import java.time.LocalDateTime
 fun YouTubeSongMenu(
     song: SongItem,
     onDismiss: () -> Unit,
-    onHistoryRemoved: () -> Unit = {}
+    onHistoryRemoved: () -> Unit = {},
+    nextSong: MediaMetadata? = null,
 ) {
     val navController = LocalNavController.current
     val context = LocalContext.current
@@ -692,6 +693,26 @@ fun YouTubeSongMenu(
                                     onDismiss()
                                 }
                             )
+                        )
+                    }
+                    if (nextSong != null) {
+                        add(
+                            Material3MenuItemData(
+                                title = { Text(text = stringResource(R.string.transition_to_next_song)) },
+                                description = { Text(text = stringResource(R.string.transition_to_next_song_desc)) },
+                                icon = {
+                                    Icon(
+                                        painter = painterResource(R.drawable.linear_scale),
+                                        contentDescription = null,
+                                    )
+                                },
+                                onClick = {
+                                    onDismiss()
+                                    bottomSheetPageState.show {
+                                        TransitionEditor(song.toMediaMetadata(), nextSong, bottomSheetPageState::dismiss)
+                                    }
+                                },
+                            ),
                         )
                     }
                     add(
