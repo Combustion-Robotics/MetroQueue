@@ -41,6 +41,8 @@ import com.metrolist.music.playback.MusicService
 import com.metrolist.music.playback.MusicService.Companion.PERSISTENT_AUTOMIX_FILE
 import com.metrolist.music.playback.MusicService.Companion.PERSISTENT_PLAYER_STATE_FILE
 import com.metrolist.music.playback.MusicService.Companion.PERSISTENT_QUEUE_FILE
+import com.metrolist.music.playback.mix.CustomTransitionRepository
+import com.metrolist.music.playback.mix.CustomTransitionStore
 import com.metrolist.music.utils.reportException
 import com.metrolist.music.utils.ArtistNameAliases
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -77,6 +79,7 @@ data class ConvertedSongLog(
 @HiltViewModel
 class BackupRestoreViewModel @Inject constructor(
     val database: MusicDatabase,
+    private val customTransitions: CustomTransitionRepository,
 ) : ViewModel() {
     fun backup(context: Context, uri: Uri) {
         runCatching {
@@ -89,6 +92,8 @@ class BackupRestoreViewModel @Inject constructor(
                         }
                     outputStream.putNextEntry(ZipEntry(ArtistNameAliases.BACKUP_FILENAME))
                     outputStream.write(ArtistNameAliases.serialize().encodeToByteArray())
+                    outputStream.putNextEntry(ZipEntry(CustomTransitionStore.FILE_NAME))
+                    outputStream.write(runBlocking { customTransitions.exportJson() }.encodeToByteArray())
                     runBlocking(Dispatchers.IO) {
                         database.checkpoint()
                     }
@@ -147,6 +152,8 @@ class BackupRestoreViewModel @Inject constructor(
                 var foundDb = false
                 var foundSettings = false
                 var restoredArtistNameAliases: Map<String, String>? = null
+                // Older backups have none; then the current custom transitions stay as they are
+                var restoredTransitions: String? = null
 
                 context.applicationContext.contentResolver.openInputStream(uri)?.use { raw ->
                     raw.zipInputStream().use { inputStream ->
@@ -161,6 +168,9 @@ class BackupRestoreViewModel @Inject constructor(
                                 ArtistNameAliases.BACKUP_FILENAME -> {
                                     restoredArtistNameAliases =
                                         ArtistNameAliases.deserialize(inputStream.readBytes().decodeToString())
+                                }
+                                CustomTransitionStore.FILE_NAME -> {
+                                    restoredTransitions = inputStream.readBytes().decodeToString()
                                 }
                                 InternalDatabase.DB_NAME -> {
                                     foundDb = true
@@ -320,6 +330,9 @@ class BackupRestoreViewModel @Inject constructor(
                     context.filesDir.resolve(PERSISTENT_AUTOMIX_FILE).delete()
                     context.filesDir.resolve(PERSISTENT_PLAYER_STATE_FILE).delete()
                     ArtistNameAliases.restore(context, restoredArtistNameAliases.orEmpty())
+                    restoredTransitions?.let {
+                        if (!customTransitions.restore(it)) Timber.tag("RESTORE").w("Skipping unreadable custom transitions")
+                    }
 
                     // 4. Restart — Room will open the swapped DB and run migrations if needed
                     val intent = context.packageManager.getLaunchIntentForPackage(context.packageName)?.apply {
