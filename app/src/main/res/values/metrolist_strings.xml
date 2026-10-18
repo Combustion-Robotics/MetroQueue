@@ -367,9 +367,15 @@
     <string name="crossfade_on_skip">Crossfade on manual skip</string>
     <string name="crossfade_on_skip_desc">Blend into the next or previous song over up to 3 seconds when you skip</string>
     <string name="mix_settings">Mix</string>
+    <string name="mix_mode">Mode</string>
+    <string name="mix_mode_off">Off</string>
+    <string name="mix_mode_off_desc">Songs play one after another</string>
+    <string name="mix_mode_smart">Smart mix</string>
+    <string name="mix_mode_smart_desc">Picks where and how to blend each pair of songs from their tempo and structure</string>
+    <string name="mix_smart_note">Smart mix analyses songs on your device; it works best for songs already cached or downloaded</string>
     <string name="mix_transition_style">Transition style</string>
     <string name="mix_transition_auto">Auto</string>
-    <string name="mix_transition_auto_desc">Currently the same as Fade</string>
+    <string name="mix_transition_auto_desc">Smart mix picks a style for each transition; with Crossfade, a fade</string>
     <string name="mix_transition_fade">Fade</string>
     <string name="mix_transition_fade_desc">Smooth volume crossfade</string>
     <string name="mix_transition_filter">Filter</string>

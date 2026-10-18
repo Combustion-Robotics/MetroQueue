@@ -56,6 +56,8 @@ import com.metrolist.music.constants.HistoryDuration
 import com.metrolist.music.constants.KeepScreenOn
 import com.metrolist.music.constants.LoudnessLevel
 import com.metrolist.music.constants.LoudnessLevelKey
+import com.metrolist.music.constants.MixMode
+import com.metrolist.music.constants.MixModeKey
 import com.metrolist.music.constants.MixTransitionStyle
 import com.metrolist.music.constants.MixTransitionStyleKey
 import com.metrolist.music.constants.NewRadioAfterAddedSongsKey
@@ -124,6 +126,16 @@ fun PlayerSettings(
         MixTransitionStyleKey,
         defaultValue = MixTransitionStyle.AUTO
     )
+    val (mixModeSetting, onMixModeSettingChange) = rememberEnumPreference(
+        MixModeKey,
+        defaultValue = MixMode.CROSSFADE
+    )
+    // Same rule as Preferences.mixMode(): the crossfade switch decides on/off
+    val mixMode = when {
+        !crossfadeEnabled -> MixMode.OFF
+        mixModeSetting == MixMode.SMART -> MixMode.SMART
+        else -> MixMode.CROSSFADE
+    }
     val (persistentQueue, onPersistentQueueChange) = rememberPreference(
         PersistentQueueKey,
         defaultValue = true
@@ -269,6 +281,26 @@ fun PlayerSettings(
                     AudioQuality.LOW -> stringResource(R.string.audio_quality_low)
                 }
             }
+        )
+    }
+
+    var showMixModeDialog by remember {
+        mutableStateOf(false)
+    }
+
+    if (showMixModeDialog) {
+        EnumDialog(
+            onDismiss = { showMixModeDialog = false },
+            onSelect = {
+                onMixModeSettingChange(it)
+                onCrossfadeEnabledChange(it != MixMode.OFF)
+                showMixModeDialog = false
+            },
+            title = stringResource(R.string.mix_mode),
+            current = mixMode,
+            values = MixMode.entries,
+            valueText = { mixModeLabel(it) },
+            valueDescription = { mixModeDescription(it) }
         )
     }
 
@@ -557,24 +589,16 @@ fun PlayerSettings(
             items = buildList {
                 add(Material3SettingsItem(
                     icon = painterResource(R.drawable.linear_scale),
-                    title = { Text(stringResource(R.string.crossfade)) },
-                    description = { Text(stringResource(R.string.crossfade_desc)) },
-                    trailingContent = {
-                        Switch(
-                            checked = crossfadeEnabled,
-                            onCheckedChange = onCrossfadeEnabledChange,
-                            thumbContent = {
-                                Icon(
-                                    painter = painterResource(
-                                        id = if (crossfadeEnabled) R.drawable.check else R.drawable.close
-                                    ),
-                                    contentDescription = null,
-                                    modifier = Modifier.size(SwitchDefaults.IconSize)
-                                )
+                    title = { Text(stringResource(R.string.mix_mode)) },
+                    description = {
+                        Column {
+                            Text(mixModeLabel(mixMode))
+                            if (mixMode == MixMode.SMART) {
+                                Text(stringResource(R.string.mix_smart_note))
                             }
-                        )
+                        }
                     },
-                    onClick = { onCrossfadeEnabledChange(!crossfadeEnabled) }
+                    onClick = { showMixModeDialog = true }
                 ))
                 if (crossfadeEnabled) {
                     add(Material3SettingsItem(
@@ -1225,6 +1249,26 @@ fun PlayerSettings(
         }
     )
 }
+
+@Composable
+private fun mixModeLabel(mode: MixMode): String =
+    stringResource(
+        when (mode) {
+            MixMode.OFF -> R.string.mix_mode_off
+            MixMode.CROSSFADE -> R.string.crossfade
+            MixMode.SMART -> R.string.mix_mode_smart
+        }
+    )
+
+@Composable
+private fun mixModeDescription(mode: MixMode): String =
+    stringResource(
+        when (mode) {
+            MixMode.OFF -> R.string.mix_mode_off_desc
+            MixMode.CROSSFADE -> R.string.crossfade_desc
+            MixMode.SMART -> R.string.mix_mode_smart_desc
+        }
+    )
 
 @Composable
 private fun transitionStyleLabel(style: MixTransitionStyle): String =
