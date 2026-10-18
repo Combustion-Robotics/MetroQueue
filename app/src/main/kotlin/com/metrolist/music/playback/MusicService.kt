@@ -202,6 +202,7 @@ import com.metrolist.music.models.PersistQueue
 import com.metrolist.music.models.toMediaMetadata
 import com.metrolist.music.playback.alarm.MusicAlarmScheduler
 import com.metrolist.music.playback.alarm.MusicAlarmStore
+import com.metrolist.music.playback.audio.LevelMeterAudioProcessor
 import com.metrolist.music.playback.audio.SilenceDetectorAudioProcessor
 import com.metrolist.music.playback.mix.TransitionPlan
 import com.metrolist.music.playback.queues.EmptyQueue
@@ -408,6 +409,10 @@ class MusicService :
     private var isCrossfading = false
     private var fadingAudioSessionId = C.AUDIO_SESSION_ID_UNSET
     private var crossfadeJob: Job? = null
+    private var crossfadeWatchJob: Job? = null
+    private var introScanJob: Job? = null
+    private var tailMeteredPlayer: ExoPlayer? = null
+    private var tailMeteredMediaId: String? = null
     private var taskCleared = false
     private var lastSavedPlayerState: PersistPlayerState? = null
     private var mediaSession: MediaLibrarySession? = null
@@ -426,6 +431,7 @@ class MusicService :
     val playerFlow = _playerFlow.asStateFlow()
 
     private val playerSilenceProcessors = HashMap<Player, SilenceDetectorAudioProcessor>()
+    private val playerLevelMeters = HashMap<Player, LevelMeterAudioProcessor>()
 
     private val instantSilenceSkipEnabled = MutableStateFlow(false)
 
@@ -1332,6 +1338,7 @@ class MusicService :
         val eqProcessor = CustomEqualizerAudioProcessor()
 
         val silenceProcessor = SilenceDetectorAudioProcessor { handleLongSilenceDetected() }
+        val levelMeter = LevelMeterAudioProcessor()
 
         // Set initial state — use pre-read prefs when available, otherwise fall back to DataStore
         val useAudioTrackPlaybackParams = if (prefs != null) {
@@ -1355,7 +1362,9 @@ class MusicService :
                 .setMediaSourceFactory(
                     createMediaSourceFactory(normalizationProcessor) { createdPlayer },
                 )
-                .setRenderersFactory(createRenderersFactory(normalizationProcessor, eqProcessor, silenceProcessor, useAudioTrackPlaybackParams))
+                .setRenderersFactory(
+                    createRenderersFactory(levelMeter, normalizationProcessor, eqProcessor, silenceProcessor, useAudioTrackPlaybackParams),
+                )
                 .setLoadControl(
                     // Start playback once ~750ms is buffered (media3's default is 1000ms) so first
                     // audio is audible a touch sooner. min/max/after-rebuffer match the media3 1.x
@@ -1382,6 +1391,7 @@ class MusicService :
 
         playerNormalizationProcessors[player] = normalizationProcessor
         playerSilenceProcessors[player] = silenceProcessor
+        playerLevelMeters[player] = levelMeter
         playerEqualizerProcessors[player] = eqProcessor
         equalizerService.addAudioProcessor(eqProcessor)
 
@@ -4118,6 +4128,7 @@ class MusicService :
         )
 
     private fun createRenderersFactory(
+        levelMeter: LevelMeterAudioProcessor,
         normalizationProcessor: VolumeNormalizationAudioProcessor,
         eqProcessor: CustomEqualizerAudioProcessor,
         silenceProcessor: SilenceDetectorAudioProcessor,
@@ -4178,6 +4189,7 @@ class MusicService :
             .setAudioProcessorChain(
                 DefaultAudioSink.DefaultAudioProcessorChain(
                     arrayOf(
+                        levelMeter,
                         normalizationProcessor,
                         eqProcessor,
                         silenceProcessor,
@@ -4946,23 +4958,29 @@ class MusicService :
         reason: Int,
     ) {
         if (reason == Player.DISCONTINUITY_REASON_SEEK) {
+            // Re-measure the tail from the new position
+            tailMeteredPlayer = null
             scheduleCrossfade()
         }
     }
 
     /**
-     * Plans the automatic transition out of the current track: pre-buffers the incoming player
-     * [CROSSFADE_PREBUFFER_LEAD_MS] ahead and starts the transition at the planned position.
+     * Plans the automatic transition out of the current track. Near its end the incoming player
+     * is pre-buffered and the tail is metered, so the transition can start early where the song
+     * audibly ends (fade-out or trailing silence); otherwise it starts at the planned position.
      */
     private fun scheduleCrossfade(prebufferDue: Boolean = false) {
         crossfadeMessage?.cancel()
         crossfadeMessage = null
+        crossfadeWatchJob?.cancel()
+        crossfadeWatchJob = null
         if (!::player.isInitialized) return
 
         val plan = planAutoTransition()
         val targetIndex = autoTransitionTargetIndex()
         if (plan == null || targetIndex == C.INDEX_UNSET) {
             releaseIncomingPlayer()
+            stopTailMetering()
             return
         }
         val target = player.getMediaItemAt(targetIndex)
@@ -4971,14 +4989,17 @@ class MusicService :
         val position = player.currentPosition
         if (position >= plan.startPositionMs) {
             releaseIncomingPlayer()
+            stopTailMetering()
             return
         }
 
         val currentMediaId = player.currentMediaItem?.mediaId
-        val prebufferAt = plan.startPositionMs - CROSSFADE_PREBUFFER_LEAD_MS
+        val earliestStart = plan.startPositionMs - if (plan.allowEarlyStart) CROSSFADE_EARLY_START_WINDOW_MS else 0L
+        val prebufferAt = earliestStart - CROSSFADE_PREBUFFER_LEAD_MS
         // The tolerance keeps a message from being re-posted just behind the playback position, where it would never fire
         if (!prebufferDue && position < prebufferAt - CROSSFADE_POSITION_TOLERANCE_MS) {
             releaseIncomingPlayer()
+            stopTailMetering()
             crossfadeMessage = sendAtPosition(prebufferAt) {
                 if (player.currentMediaItem?.mediaId == currentMediaId) scheduleCrossfade(prebufferDue = true)
             }
@@ -4987,11 +5008,43 @@ class MusicService :
 
         // A track shorter than the overlap would need a third player; wait for the fade to finish.
         if (secondaryPlayer == null && !isCrossfading && target.mediaId != failedIncomingMediaId) {
-            prepareIncomingPlayer(target)
+            prepareIncomingPlayer(target, scanIntro = plan.incomingStartMs == null)
         }
         crossfadeMessage = sendAtPosition(plan.startPositionMs) {
             if (player.currentMediaItem?.mediaId == currentMediaId) startAutoCrossfade()
         }
+        if (plan.allowEarlyStart) watchForAudibleEnd(plan, currentMediaId)
+    }
+
+    private fun watchForAudibleEnd(
+        plan: TransitionPlan,
+        mediaId: String?,
+    ) {
+        val meter = playerLevelMeters[player] ?: return
+        if (tailMeteredPlayer !== player || tailMeteredMediaId != mediaId) {
+            stopTailMetering()
+            meter.startTailMetering()
+            tailMeteredPlayer = player
+            tailMeteredMediaId = mediaId
+        }
+        crossfadeWatchJob =
+            scope.launch {
+                while (isActive) {
+                    delay(CROSSFADE_WATCH_INTERVAL_MS)
+                    if (!player.isPlaying || player.currentMediaItem?.mediaId != mediaId) continue
+                    if (plan.startPositionMs - player.currentPosition > CROSSFADE_EARLY_START_WINDOW_MS) continue
+                    if (meter.tailQuietMs() >= CROSSFADE_QUIET_TRIGGER_MS) {
+                        startAutoCrossfade(outgoingSilent = meter.tailSilentMs() >= CROSSFADE_QUIET_TRIGGER_MS)
+                        break
+                    }
+                }
+            }
+    }
+
+    private fun stopTailMetering() {
+        tailMeteredPlayer?.let { playerLevelMeters[it]?.stopTailMetering() }
+        tailMeteredPlayer = null
+        tailMeteredMediaId = null
     }
 
     private fun sendAtPosition(positionMs: Long, action: () -> Unit): PlayerMessage =
@@ -5036,9 +5089,16 @@ class MusicService :
         return current.albumTitle != null && current.albumTitle == next.albumTitle
     }
 
-    private fun startAutoCrossfade() {
+    private fun startAutoCrossfade(outgoingSilent: Boolean = false) {
         if (!player.isPlaying) return
-        val plan = planAutoTransition() ?: return
+        val autoPlan = planAutoTransition() ?: return
+        // Nothing left to fade out: bring the next song in quickly instead of over the full duration
+        val plan =
+            if (outgoingSilent) {
+                autoPlan.copy(durationMs = autoPlan.durationMs.coerceAtMost(CROSSFADE_SILENT_END_DURATION_MS))
+            } else {
+                autoPlan
+            }
         val targetIndex = autoTransitionTargetIndex()
         if (targetIndex == C.INDEX_UNSET) return
         val reason =
@@ -5051,7 +5111,10 @@ class MusicService :
     }
 
     /** Creates the paused, silent incoming player for [target] so the transition can start instantly. */
-    private fun prepareIncomingPlayer(target: MediaItem) {
+    private fun prepareIncomingPlayer(
+        target: MediaItem,
+        scanIntro: Boolean,
+    ) {
         val incoming = createExoPlayer()
         incoming.addListener(secondaryPlayerListener)
         incoming.setMediaItem(target)
@@ -5068,9 +5131,64 @@ class MusicService :
         }
         secondaryPlayer = incoming
         secondaryTargetMediaId = target.mediaId
+
+        val meter = playerLevelMeters[incoming]
+        if (scanIntro && meter != null) {
+            meter.startIntroScan()
+            introScanJob = scope.launch { scanIncomingIntro(incoming, meter) }
+        }
+    }
+
+    /**
+     * Finds where the incoming track becomes audible. The paused player already decodes its first
+     * few hundred ms into the audio buffer; only if all of that is silent does it play on muted
+     * until sound starts (capped), then it pauses and is moved to the first audible position.
+     */
+    private suspend fun scanIncomingIntro(
+        incoming: ExoPlayer,
+        meter: LevelMeterAudioProcessor,
+    ) {
+        while (incoming.playbackState != Player.STATE_READY) {
+            if (incoming.playbackState == Player.STATE_IDLE || incoming.playbackState == Player.STATE_ENDED) return
+            delay(100)
+        }
+        delay(INTRO_PREFILL_SETTLE_MS)
+        if (!meter.introScan().audible) {
+            incoming.play()
+            // Bounded in real time too, in case the incoming player stalls while buffering
+            withTimeoutOrNull(INTRO_SKIP_MAX_MS * 2) {
+                while (true) {
+                    delay(100)
+                    val scan = meter.introScan()
+                    if (scan.audible || scan.leadingSilenceMs >= INTRO_SKIP_MAX_MS) break
+                }
+            }
+            incoming.pause()
+        }
+        applyIntroSkip(incoming, meter)
+    }
+
+    private fun applyIntroSkip(
+        incoming: ExoPlayer,
+        meter: LevelMeterAudioProcessor,
+    ) {
+        val silenceMs = meter.introScan().leadingSilenceMs
+        meter.stopIntroScan()
+        val trackDurationMs = incoming.duration
+        val startMs =
+            if (silenceMs < INTRO_SKIP_MIN_MS ||
+                (trackDurationMs != C.TIME_UNSET && silenceMs >= trackDurationMs / 2)
+            ) {
+                0L
+            } else {
+                (silenceMs - INTRO_SKIP_PREROLL_MS).coerceAtMost(INTRO_SKIP_MAX_MS)
+            }
+        if (incoming.currentPosition != startMs) incoming.seekTo(startMs)
     }
 
     private fun releaseIncomingPlayer() {
+        introScanJob?.cancel()
+        introScanJob = null
         val incoming = secondaryPlayer ?: return
         secondaryPlayer = null
         secondaryTargetMediaId = null
@@ -5079,14 +5197,30 @@ class MusicService :
     }
 
     /** Hands over the pre-buffered player for [target], or a freshly prepared one when none matches. */
-    private fun takeIncomingPlayer(target: MediaItem): ExoPlayer? {
+    private fun takeIncomingPlayer(
+        target: MediaItem,
+        plan: TransitionPlan,
+    ): ExoPlayer? {
         if (secondaryTargetMediaId != target.mediaId) {
             releaseIncomingPlayer()
-            prepareIncomingPlayer(target)
+            prepareIncomingPlayer(target, scanIntro = false)
         }
         val incoming = secondaryPlayer ?: return null
         secondaryPlayer = null
         secondaryTargetMediaId = null
+
+        // An unfinished intro scan is applied with what it has measured so far
+        val scanInProgress = introScanJob?.isActive == true
+        introScanJob?.cancel()
+        introScanJob = null
+        val fixedStartMs = plan.incomingStartMs
+        val meter = playerLevelMeters[incoming]
+        if (fixedStartMs != null) {
+            meter?.stopIntroScan()
+            if (incoming.currentPosition != fixedStartMs) incoming.seekTo(fixedStartMs)
+        } else if (scanInProgress && meter != null) {
+            applyIntroSkip(incoming, meter)
+        }
         return incoming
     }
 
@@ -5094,6 +5228,9 @@ class MusicService :
     private fun resetCrossfade() {
         crossfadeMessage?.cancel()
         crossfadeMessage = null
+        crossfadeWatchJob?.cancel()
+        crossfadeWatchJob = null
+        stopTailMetering()
         releaseIncomingPlayer()
         if (isCrossfading) cleanupCrossfade(reschedule = false)
     }
@@ -5105,9 +5242,12 @@ class MusicService :
     ) {
         crossfadeMessage?.cancel()
         crossfadeMessage = null
+        crossfadeWatchJob?.cancel()
+        crossfadeWatchJob = null
+        stopTailMetering()
         if (isCrossfading) cleanupCrossfade(reschedule = false)
 
-        val incoming = takeIncomingPlayer(player.getMediaItemAt(targetIndex)) ?: return
+        val incoming = takeIncomingPlayer(player.getMediaItemAt(targetIndex), plan) ?: return
 
         // The incoming player only holds the target item; mirror the rest of the queue around it
         // (adding items around the current one doesn't interrupt it) so it can take over.
@@ -5258,6 +5398,7 @@ class MusicService :
     private fun releaseExoPlayer(player: ExoPlayer) {
         playerNormalizationProcessors.remove(player)
         playerSilenceProcessors.remove(player)
+        playerLevelMeters.remove(player)
         playerEqualizerProcessors.remove(player)?.let(equalizerService::removeAudioProcessor)
         player.release()
     }
@@ -5289,6 +5430,14 @@ class MusicService :
 
         private const val CROSSFADE_PREBUFFER_LEAD_MS = 15_000L
         private const val CROSSFADE_POSITION_TOLERANCE_MS = 1_000L
+        private const val CROSSFADE_EARLY_START_WINDOW_MS = 10_000L
+        private const val CROSSFADE_WATCH_INTERVAL_MS = 250L
+        private const val CROSSFADE_QUIET_TRIGGER_MS = 1_500L
+        private const val CROSSFADE_SILENT_END_DURATION_MS = 2_000L
+        private const val INTRO_PREFILL_SETTLE_MS = 300L
+        private const val INTRO_SKIP_MIN_MS = 500L
+        private const val INTRO_SKIP_MAX_MS = 10_000L
+        private const val INTRO_SKIP_PREROLL_MS = 100L
         private const val INITIAL_BUFFER_RECOVERY_DELAY_MS = 15_000L
         private const val INITIAL_BUFFER_RECOVERY_POSITION_MS = 5_000L
         private const val TAG = "MusicService"
