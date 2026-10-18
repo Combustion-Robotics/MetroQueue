@@ -385,8 +385,19 @@ class MusicService :
     }
 
     private fun applyEffectiveVolume() {
-        if (!::player.isInitialized || isCrossfading) return
-        player.volume = calculateEffectiveVolume()
+        if (!::player.isInitialized) return
+        applyPlayerVolumes(calculateEffectiveVolume())
+    }
+
+    // During a crossfade both players follow the fade curve, scaled by the effective volume
+    private fun applyPlayerVolumes(effectiveVolume: Float) {
+        if (!isCrossfading) {
+            player.volume = effectiveVolume
+            return
+        }
+        val remaining = 1f - crossfadeProgress
+        player.volume = effectiveVolume * (1f - remaining * remaining)
+        fadingPlayer?.volume = effectiveVolume * remaining * remaining
     }
 
     var sleepTimer: SleepTimer? = null
@@ -407,6 +418,15 @@ class MusicService :
     private var failedIncomingMediaId: String? = null
     private var fadingPlayer: ExoPlayer? = null
     private var isCrossfading = false
+    private var crossfadeProgress = 0f
+    private val crossfadeSyncListener =
+        object : Player.Listener {
+            // The outgoing track pauses and resumes with the incoming one
+            override fun onIsPlayingChanged(isPlaying: Boolean) {
+                if (!isCrossfading) return
+                if (isPlaying) fadingPlayer?.play() else fadingPlayer?.pause()
+            }
+        }
     private var fadingAudioSessionId = C.AUDIO_SESSION_ID_UNSET
     private var crossfadeJob: Job? = null
     private var crossfadeWatchJob: Job? = null
@@ -879,9 +899,7 @@ class MusicService :
                 focusMultiplier = focusMultiplier,
             )
         }.collectLatest(scope) {
-            if (!isCrossfading) {
-                player.volume = it
-            }
+            applyPlayerVolumes(it)
         }
 
         playerVolume.debounce(1000).collect(scope) { volume ->
@@ -2645,6 +2663,10 @@ class MusicService :
         }
         lastTransitionedMediaId = mediaItem?.mediaId
         failedIncomingMediaId = null
+        // A new queue replaces the track being faded in; stop the outgoing one too
+        if (isCrossfading && reason == Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED) {
+            cleanupCrossfade(reschedule = false)
+        }
         initialBufferRecoveryJob?.cancel()
         initialBufferRecoveryJob = null
         initialBufferRecoveryAttemptedMediaId = null
@@ -3170,6 +3192,8 @@ class MusicService :
 
     override fun onPlayerError(error: PlaybackException) {
         super.onPlayerError(error)
+        // Don't leave the outgoing track fading under a player that failed
+        if (isCrossfading) cleanupCrossfade(reschedule = false)
 
         if (!playerInitialized.value) {
             Timber.tag(TAG).e(error, "Player error occurred but player not initialized")
@@ -4958,6 +4982,7 @@ class MusicService :
         reason: Int,
     ) {
         if (reason == Player.DISCONTINUITY_REASON_SEEK) {
+            if (isCrossfading) cleanupCrossfade(reschedule = false)
             // Re-measure the tail from the new position
             tailMeteredPlayer = null
             scheduleCrossfade()
@@ -5291,21 +5316,9 @@ class MusicService :
             }
         }
 
-        player.addListener(
-            object : Player.Listener {
-                override fun onIsPlayingChanged(isPlaying: Boolean) {
-                    if (isCrossfading && fadingPlayer != null) {
-                        if (isPlaying) {
-                            fadingPlayer?.play()
-                        } else {
-                            fadingPlayer?.pause()
-                        }
-                    } else {
-                        player.removeListener(this)
-                    }
-                }
-            },
-        )
+        crossfadeProgress = 0f
+        applyEffectiveVolume()
+        player.addListener(crossfadeSyncListener)
 
         nextPlayer.removeListener(secondaryPlayerListener)
         nextPlayer.addListener(this)
@@ -5331,49 +5344,29 @@ class MusicService :
         crossfadeJob =
             scope.launch {
                 val speed = fadingPlayer?.playbackParameters?.speed?.coerceAtLeast(0.01f) ?: 1f
-                val duration = (plan.durationMs / speed).toLong()
-                val steps = 20
-                val stepTime = duration / steps
-                val startVolume =
-                    try {
-                        fadingPlayer?.volume ?: 1f
-                    } catch (e: Exception) {
-                        1f
-                    }
+                val stepTime = (plan.durationMs / speed).toLong() / CROSSFADE_STEPS
 
-                for (i in 0..steps) {
-                    if (!isActive) break
-                    while (!player.isPlaying && isActive) {
+                for (i in 0..CROSSFADE_STEPS) {
+                    while (!player.isPlaying) {
                         delay(100)
                     }
-
-                    val progress = i / steps.toFloat()
-                    val fadeIn = 1.0f - (1.0f - progress) * (1.0f - progress)
-                    val fadeOut = (1.0f - progress) * (1.0f - progress)
-
-                    try {
-                        player.volume = startVolume * fadeIn
-                        fadingPlayer?.volume = startVolume * fadeOut
-                    } catch (e: Exception) {
-                        break
-                    }
-
+                    crossfadeProgress = i / CROSSFADE_STEPS.toFloat()
+                    applyEffectiveVolume()
                     delay(stepTime)
-                }
-
-                try {
-                    fadingPlayer?.volume = 0f
-                    player.volume = startVolume
-                } catch (e: Exception) {
                 }
 
                 cleanupCrossfade()
             }
     }
 
+    /**
+     * Ends the running crossfade: releases the outgoing player and gives the current one its full
+     * effective volume. Also used to cancel a fade when the user seeks or changes track.
+     */
     private fun cleanupCrossfade(reschedule: Boolean = true) {
         crossfadeJob?.cancel()
         crossfadeJob = null
+        player.removeListener(crossfadeSyncListener)
         fadingPlayer?.let { previousPlayer ->
             previousPlayer.stop()
             previousPlayer.clearMediaItems()
@@ -5390,6 +5383,8 @@ class MusicService :
         fadingAudioSessionId = C.AUDIO_SESSION_ID_UNSET
         if (fadingSessionId != C.AUDIO_SESSION_ID_UNSET && fadingSessionId > 0) {
             closeAudioEffectSession(sessionIdOverride = fadingSessionId, clearNormalizationCache = true)
+            // Closing a session cancels pending loudness setup, which may belong to the current track
+            setupAudioNormalization()
         }
         // Pre-buffering of the next transition waits until the fade is over.
         if (reschedule) scheduleCrossfade()
@@ -5428,6 +5423,7 @@ class MusicService :
         const val MAX_CONSECUTIVE_ERR = 5
         const val MAX_RETRY_COUNT = 10
 
+        private const val CROSSFADE_STEPS = 20
         private const val CROSSFADE_PREBUFFER_LEAD_MS = 15_000L
         private const val CROSSFADE_POSITION_TOLERANCE_MS = 1_000L
         private const val CROSSFADE_EARLY_START_WINDOW_MS = 10_000L
