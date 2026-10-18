@@ -4617,9 +4617,11 @@ class MusicService :
     fun stopOnTaskClear() {
         if (taskCleared) return
         taskCleared = true
-        crossfadeJob?.cancel()
-        crossfadeJob = null
-        crossfadeMessage?.cancel()
+        // Ends a running fade properly, so a later resume doesn't keep a half-faded volume
+        runCatching {
+            if (::player.isInitialized) resetCrossfade()
+            cancelSmartMix()
+        }.onFailure { Timber.tag(TAG).e(it, "Failed to cancel the transition on task clear") }
         // Remote playback (Cast) is independent of the local ExoPlayer; ending the session
         // is required or audio keeps playing on the Cast device.
         runCatching {
