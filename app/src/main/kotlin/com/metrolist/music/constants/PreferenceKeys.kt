@@ -157,6 +157,16 @@ val CrossfadeEnabledKey = booleanPreferencesKey("crossfadeEnabled")
 val CrossfadeDurationKey = floatPreferencesKey("crossfadeDurationFloat")
 val CrossfadeGaplessKey = booleanPreferencesKey("crossfadeGapless")
 val CrossfadeOnSkipKey = booleanPreferencesKey("crossfadeOnSkip")
+val MixTransitionStyleKey = stringPreferencesKey("mixTransitionStyle")
+
+enum class MixTransitionStyle {
+    AUTO,
+    FADE,
+    FILTER,
+    ECHO,
+    RISE,
+    CUT,
+}
 
 val MaxImageCacheSizeKey = intPreferencesKey("maxImageCacheSize")
 val MaxSongCacheSizeKey = intPreferencesKey("maxSongCacheSize")

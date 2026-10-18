@@ -149,6 +149,8 @@ import com.metrolist.music.constants.MediaSessionConstants.CommandToggleLike
 import com.metrolist.music.constants.MediaSessionConstants.CommandToggleRepeatMode
 import com.metrolist.music.constants.MediaSessionConstants.CommandToggleShuffle
 import com.metrolist.music.constants.MediaSessionConstants.CommandToggleStartRadio
+import com.metrolist.music.constants.MixTransitionStyle
+import com.metrolist.music.constants.MixTransitionStyleKey
 import com.metrolist.music.constants.NewRadioAfterAddedSongsKey
 import com.metrolist.music.constants.PauseListenHistoryKey
 import com.metrolist.music.constants.PauseOnMute
@@ -206,7 +208,9 @@ import com.metrolist.music.playback.alarm.MusicAlarmScheduler
 import com.metrolist.music.playback.alarm.MusicAlarmStore
 import com.metrolist.music.playback.audio.LevelMeterAudioProcessor
 import com.metrolist.music.playback.audio.SilenceDetectorAudioProcessor
+import com.metrolist.music.playback.audio.TransitionFxAudioProcessor
 import com.metrolist.music.playback.mix.TransitionPlan
+import com.metrolist.music.playback.mix.TransitionStyle
 import com.metrolist.music.playback.queues.EmptyQueue
 import com.metrolist.music.playback.queues.ListQueue
 import com.metrolist.music.playback.queues.Queue
@@ -318,6 +322,7 @@ class MusicService :
     private var crossfadeDuration = 5000f
     private var crossfadeGapless = true
     private var crossfadeOnSkip = false
+    private var mixTransitionStyle = MixTransitionStyle.AUTO
     private var crossfadeMessage: PlayerMessage? = null
 
     private val secondaryPlayerListener =
@@ -455,6 +460,7 @@ class MusicService :
 
     private val playerSilenceProcessors = HashMap<Player, SilenceDetectorAudioProcessor>()
     private val playerLevelMeters = HashMap<Player, LevelMeterAudioProcessor>()
+    private val playerTransitionFx = HashMap<Player, TransitionFxAudioProcessor>()
 
     private val instantSilenceSkipEnabled = MutableStateFlow(false)
 
@@ -1208,6 +1214,15 @@ class MusicService :
             .distinctUntilChanged()
             .collect(scope) { crossfadeOnSkip = it }
 
+        dataStore.data
+            .map { it[MixTransitionStyleKey].toEnum(MixTransitionStyle.AUTO) }
+            .distinctUntilChanged()
+            .collect(scope) {
+                mixTransitionStyle = it
+                // A cut starts at a different point than an overlap
+                scheduleCrossfade()
+            }
+
         // Observe and cache common preferences to avoid runBlocking reads in playback callbacks
         scope.launch {
             dataStore.data.map { it[PersistentQueueKey] ?: true }.distinctUntilChanged().collect { cachedPersistentQueue = it }
@@ -1365,6 +1380,7 @@ class MusicService :
 
         val silenceProcessor = SilenceDetectorAudioProcessor { handleLongSilenceDetected() }
         val levelMeter = LevelMeterAudioProcessor()
+        val transitionFx = TransitionFxAudioProcessor()
 
         // Set initial state — use pre-read prefs when available, otherwise fall back to DataStore
         val useAudioTrackPlaybackParams = if (prefs != null) {
@@ -1389,7 +1405,14 @@ class MusicService :
                     createMediaSourceFactory(normalizationProcessor) { createdPlayer },
                 )
                 .setRenderersFactory(
-                    createRenderersFactory(levelMeter, normalizationProcessor, eqProcessor, silenceProcessor, useAudioTrackPlaybackParams),
+                    createRenderersFactory(
+                        levelMeter,
+                        normalizationProcessor,
+                        eqProcessor,
+                        silenceProcessor,
+                        transitionFx,
+                        useAudioTrackPlaybackParams,
+                    ),
                 )
                 .setLoadControl(
                     // Start playback once ~750ms is buffered (media3's default is 1000ms) so first
@@ -1418,6 +1441,7 @@ class MusicService :
         playerNormalizationProcessors[player] = normalizationProcessor
         playerSilenceProcessors[player] = silenceProcessor
         playerLevelMeters[player] = levelMeter
+        playerTransitionFx[player] = transitionFx
         playerEqualizerProcessors[player] = eqProcessor
         equalizerService.addAudioProcessor(eqProcessor)
 
@@ -4164,6 +4188,7 @@ class MusicService :
         normalizationProcessor: VolumeNormalizationAudioProcessor,
         eqProcessor: CustomEqualizerAudioProcessor,
         silenceProcessor: SilenceDetectorAudioProcessor,
+        transitionFx: TransitionFxAudioProcessor,
         useAudioTrackPlaybackParams: Boolean,
     ) = object : DefaultRenderersFactory(this) {
         override fun buildAudioRenderers(
@@ -4225,6 +4250,7 @@ class MusicService :
                         normalizationProcessor,
                         eqProcessor,
                         silenceProcessor,
+                        transitionFx,
                     ),
                     SilenceSkippingAudioProcessor(2_000_000, 20_000, 256),
                     SonicAudioProcessor(),
@@ -5041,7 +5067,7 @@ class MusicService :
 
         // A track shorter than the overlap would need a third player; wait for the fade to finish.
         if (secondaryPlayer == null && !isCrossfading && target.mediaId != failedIncomingMediaId) {
-            prepareIncomingPlayer(target, scanIntro = plan.incomingStartMs == null)
+            prepareIncomingPlayer(target, plan.style, scanIntro = plan.incomingStartMs == null)
         }
         crossfadeMessage = sendAtPosition(plan.startPositionMs) {
             if (player.currentMediaItem?.mediaId == currentMediaId) startAutoCrossfade()
@@ -5104,11 +5130,31 @@ class MusicService :
         if (crossfadeGapless && isNextItemGapless()) return null
         if (!player.hasNextMediaItem() && player.repeatMode != REPEAT_MODE_ONE) return null
 
+        val style = configuredTransitionStyle()
+        if (style == TransitionStyle.CUT) {
+            // Switch right at the end, or earlier where the song audibly ends
+            return TransitionPlan(
+                startPositionMs = trackDurationMs - CUT_END_MARGIN_MS,
+                durationMs = 0L,
+                style = style,
+            )
+        }
         return TransitionPlan(
             startPositionMs = trackDurationMs - durationMs,
             durationMs = durationMs,
+            style = style,
         )
     }
+
+    // Auto becomes a per-transition choice with smart mix; until then it is a plain fade
+    private fun configuredTransitionStyle(): TransitionStyle =
+        when (mixTransitionStyle) {
+            MixTransitionStyle.AUTO, MixTransitionStyle.FADE -> TransitionStyle.FADE
+            MixTransitionStyle.FILTER -> TransitionStyle.FILTER
+            MixTransitionStyle.ECHO -> TransitionStyle.ECHO
+            MixTransitionStyle.RISE -> TransitionStyle.RISE
+            MixTransitionStyle.CUT -> TransitionStyle.CUT
+        }
 
     // For repeat-one, crossfade back into the same track
     private fun autoTransitionTargetIndex(): Int =
@@ -5162,11 +5208,15 @@ class MusicService :
                 else -> player.previousMediaItemIndex
             }
         if (targetIndex == C.INDEX_UNSET) return false
+        // A cut is what a normal skip already does
+        val style = configuredTransitionStyle()
+        if (style == TransitionStyle.CUT) return false
 
         val plan =
             TransitionPlan(
                 startPositionMs = player.currentPosition,
                 durationMs = crossfadeDuration.toLong().coerceAtMost(MANUAL_SKIP_CROSSFADE_MAX_MS),
+                style = style,
                 allowEarlyStart = false,
             )
         return startCrossfade(targetIndex, plan, Player.MEDIA_ITEM_TRANSITION_REASON_SEEK)
@@ -5175,9 +5225,12 @@ class MusicService :
     /** Creates the paused, silent incoming player for [target] so the transition can start instantly. */
     private fun prepareIncomingPlayer(
         target: MediaItem,
+        style: TransitionStyle,
         scanIntro: Boolean,
     ) {
         val incoming = createExoPlayer()
+        // Before it pre-rolls, so its first buffered audio already has the effect's starting state
+        style.fxEffect()?.let { playerTransitionFx[incoming]?.prime(it, TransitionFxAudioProcessor.Role.INCOMING) }
         incoming.addListener(secondaryPlayerListener)
         incoming.setMediaItem(target)
         incoming.playbackParameters = player.playbackParameters
@@ -5265,7 +5318,7 @@ class MusicService :
     ): ExoPlayer? {
         if (secondaryTargetMediaId != target.mediaId) {
             releaseIncomingPlayer()
-            prepareIncomingPlayer(target, scanIntro = false)
+            prepareIncomingPlayer(target, plan.style, scanIntro = false)
         }
         val incoming = secondaryPlayer ?: return null
         secondaryPlayer = null
@@ -5391,6 +5444,11 @@ class MusicService :
             ),
         )
 
+        if (plan.style == TransitionStyle.CUT) {
+            cleanupCrossfade()
+            return
+        }
+
         crossfadeJob =
             scope.launch {
                 val speed = fadingPlayer?.playbackParameters?.speed?.coerceAtLeast(0.01f) ?: 1f
@@ -5400,6 +5458,8 @@ class MusicService :
                     while (!player.isPlaying) {
                         delay(100)
                     }
+                    // Effects start with the volume ramp, once the incoming track is audible
+                    if (i == 0) startTransitionFx(plan)
                     crossfadeProgress = i / CROSSFADE_STEPS.toFloat()
                     applyEffectiveVolume()
                     delay(stepTime)
@@ -5409,6 +5469,23 @@ class MusicService :
             }
     }
 
+    private fun startTransitionFx(plan: TransitionPlan) {
+        val effect = plan.style.fxEffect()
+        fun TransitionFxAudioProcessor.arm(role: TransitionFxAudioProcessor.Role) {
+            if (effect != null) start(effect, role, plan.durationMs, plan.echoDelayMs) else stop()
+        }
+        fadingPlayer?.let { playerTransitionFx[it] }?.arm(TransitionFxAudioProcessor.Role.OUTGOING)
+        playerTransitionFx[player]?.arm(TransitionFxAudioProcessor.Role.INCOMING)
+    }
+
+    private fun TransitionStyle.fxEffect(): TransitionFxAudioProcessor.Effect? =
+        when (this) {
+            TransitionStyle.FILTER -> TransitionFxAudioProcessor.Effect.FILTER
+            TransitionStyle.ECHO -> TransitionFxAudioProcessor.Effect.ECHO
+            TransitionStyle.RISE -> TransitionFxAudioProcessor.Effect.RISE
+            TransitionStyle.FADE, TransitionStyle.CUT -> null
+        }
+
     /**
      * Ends the running crossfade: releases the outgoing player and gives the current one its full
      * effective volume. Also used to cancel a fade when the user seeks or changes track.
@@ -5416,6 +5493,8 @@ class MusicService :
     private fun cleanupCrossfade(reschedule: Boolean = true) {
         crossfadeJob?.cancel()
         crossfadeJob = null
+        // Never leave the surviving player filtered, e.g. when a transition is cancelled midway
+        playerTransitionFx[player]?.stop()
         player.removeListener(crossfadeSyncListener)
         fadingPlayer?.let { previousPlayer ->
             previousPlayer.stop()
@@ -5444,6 +5523,7 @@ class MusicService :
         playerNormalizationProcessors.remove(player)
         playerSilenceProcessors.remove(player)
         playerLevelMeters.remove(player)
+        playerTransitionFx.remove(player)
         playerEqualizerProcessors.remove(player)?.let(equalizerService::removeAudioProcessor)
         player.release()
     }
@@ -5475,6 +5555,7 @@ class MusicService :
 
         private const val CROSSFADE_STEPS = 20
         private const val MANUAL_SKIP_CROSSFADE_MAX_MS = 3_000L
+        private const val CUT_END_MARGIN_MS = 150L
 
         // Same rule as PlayerConnection.seekToPrevious and Media3's default: later than this restarts the song
         private const val MANUAL_SKIP_RESTART_THRESHOLD_MS = 3_000L

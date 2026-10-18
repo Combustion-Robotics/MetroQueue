@@ -91,15 +91,15 @@ class TransitionFxAudioProcessor : BaseAudioProcessor() {
 
     /**
      * Runs [effect] over [durationMs] of media time. Continues a matching [prime], otherwise
-     * starts from the current position.
+     * starts from the current position. [echoDelayMs] (up to 1 s) sets the echo's repeat interval.
      */
     fun start(
         effect: Effect,
         role: Role,
         durationMs: Long,
-        echoDelayMs: Long = DEFAULT_ECHO_DELAY_MS,
+        echoDelayMs: Long? = null,
     ) {
-        command = Command(effect, role, durationMs.coerceAtLeast(1L), echoDelayMs)
+        command = Command(effect, role, durationMs.coerceAtLeast(1L), echoDelayMs ?: DEFAULT_ECHO_DELAY_MS)
     }
 
     /** Ramps any effect out and returns to pass-through. */
