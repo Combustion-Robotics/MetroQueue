@@ -45,6 +45,7 @@ import com.metrolist.music.constants.AutoDownloadOnLikeKey
 import com.metrolist.music.constants.CrossfadeDurationKey
 import com.metrolist.music.constants.CrossfadeEnabledKey
 import com.metrolist.music.constants.CrossfadeGaplessKey
+import com.metrolist.music.constants.CrossfadeOnSkipKey
 import com.metrolist.music.constants.AutoLoadMoreKey
 import com.metrolist.music.constants.AutoRadioQueueKey
 import com.metrolist.music.constants.AutoSkipNextOnErrorKey
@@ -112,6 +113,10 @@ fun PlayerSettings(
     val (crossfadeGapless, onCrossfadeGaplessChange) = rememberPreference(
         CrossfadeGaplessKey,
         defaultValue = true
+    )
+    val (crossfadeOnSkip, onCrossfadeOnSkipChange) = rememberPreference(
+        CrossfadeOnSkipKey,
+        defaultValue = false
     )
     val (persistentQueue, onPersistentQueueChange) = rememberPreference(
         PersistentQueueKey,
@@ -367,6 +372,27 @@ fun PlayerSettings(
                             )
                         },
                         onClick = { onCrossfadeGaplessChange(!crossfadeGapless) }
+                    ))
+                    add(Material3SettingsItem(
+                        icon = painterResource(R.drawable.skip_next),
+                        title = { Text(stringResource(R.string.crossfade_on_skip)) },
+                        description = { Text(stringResource(R.string.crossfade_on_skip_desc)) },
+                        trailingContent = {
+                            Switch(
+                                checked = crossfadeOnSkip,
+                                onCheckedChange = onCrossfadeOnSkipChange,
+                                thumbContent = {
+                                    Icon(
+                                        painter = painterResource(
+                                            id = if (crossfadeOnSkip) R.drawable.check else R.drawable.close
+                                        ),
+                                        contentDescription = null,
+                                        modifier = Modifier.size(SwitchDefaults.IconSize)
+                                    )
+                                }
+                            )
+                        },
+                        onClick = { onCrossfadeOnSkipChange(!crossfadeOnSkip) }
                     ))
                 }
                 add(Material3SettingsItem(

@@ -156,6 +156,7 @@ val RemoteControlKeyKey = stringPreferencesKey("remoteControlKey")
 val CrossfadeEnabledKey = booleanPreferencesKey("crossfadeEnabled")
 val CrossfadeDurationKey = floatPreferencesKey("crossfadeDurationFloat")
 val CrossfadeGaplessKey = booleanPreferencesKey("crossfadeGapless")
+val CrossfadeOnSkipKey = booleanPreferencesKey("crossfadeOnSkip")
 
 val MaxImageCacheSizeKey = intPreferencesKey("maxImageCacheSize")
 val MaxSongCacheSizeKey = intPreferencesKey("maxSongCacheSize")

@@ -115,6 +115,7 @@ import com.metrolist.music.constants.AutoplayKey
 import com.metrolist.music.constants.CrossfadeDurationKey
 import com.metrolist.music.constants.CrossfadeEnabledKey
 import com.metrolist.music.constants.CrossfadeGaplessKey
+import com.metrolist.music.constants.CrossfadeOnSkipKey
 import com.metrolist.music.constants.DisableLoadMoreWhenRepeatAllKey
 import com.metrolist.music.constants.DiscordActivityNameKey
 import com.metrolist.music.constants.DiscordActivityTypeKey
@@ -315,6 +316,7 @@ class MusicService :
     private var crossfadeEnabled = false
     private var crossfadeDuration = 5000f
     private var crossfadeGapless = true
+    private var crossfadeOnSkip = false
     private var crossfadeMessage: PlayerMessage? = null
 
     private val secondaryPlayerListener =
@@ -1199,6 +1201,11 @@ class MusicService :
                 crossfadeGapless = gapless
                 scheduleCrossfade()
             }
+
+        dataStore.data
+            .map { it[CrossfadeOnSkipKey] ?: false }
+            .distinctUntilChanged()
+            .collect(scope) { crossfadeOnSkip = it }
 
         // Observe and cache common preferences to avoid runBlocking reads in playback callbacks
         scope.launch {
@@ -4614,12 +4621,12 @@ class MusicService :
             }
 
             MusicWidgetReceiver.ACTION_NEXT -> {
-                player.seekToNext()
+                if (!skipWithCrossfade(toNext = true)) player.seekToNext()
                 updateWidgetUI(player.isPlaying)
             }
 
             MusicWidgetReceiver.ACTION_PREVIOUS -> {
-                player.seekToPrevious()
+                if (!skipWithCrossfade(toNext = false)) player.seekToPrevious()
                 updateWidgetUI(player.isPlaying)
             }
 
@@ -5135,6 +5142,35 @@ class MusicService :
         startCrossfade(targetIndex, plan, reason)
     }
 
+    /**
+     * Performs a user-initiated next/previous as a short crossfade when "Crossfade on manual skip"
+     * is on. Returns false when the caller should skip normally instead (setting off, paused,
+     * casting, Listen Together, nothing to skip to, or previous that would restart the song).
+     */
+    fun skipWithCrossfade(toNext: Boolean): Boolean {
+        if (!crossfadeOnSkip || !crossfadeEnabled || crossfadeDuration <= 0f || taskCleared) return false
+        if (!::player.isInitialized || !player.isPlaying) return false
+        if (castConnectionHandler?.isCasting?.value == true) return false
+        // "Pause at end of song" keeps its normal skip behaviour
+        if (sleepTimer?.pauseWhenSongEnd == true) return false
+
+        val targetIndex =
+            when {
+                toNext -> player.nextMediaItemIndex
+                player.currentPosition > MANUAL_SKIP_RESTART_THRESHOLD_MS -> C.INDEX_UNSET
+                else -> player.previousMediaItemIndex
+            }
+        if (targetIndex == C.INDEX_UNSET) return false
+
+        val plan =
+            TransitionPlan(
+                startPositionMs = player.currentPosition,
+                durationMs = crossfadeDuration.toLong().coerceAtMost(MANUAL_SKIP_CROSSFADE_MAX_MS),
+                allowEarlyStart = false,
+            )
+        return startCrossfade(targetIndex, plan, Player.MEDIA_ITEM_TRANSITION_REASON_SEEK)
+    }
+
     /** Creates the paused, silent incoming player for [target] so the transition can start instantly. */
     private fun prepareIncomingPlayer(
         target: MediaItem,
@@ -5264,7 +5300,7 @@ class MusicService :
         targetIndex: Int,
         plan: TransitionPlan,
         transitionReason: Int,
-    ) {
+    ): Boolean {
         crossfadeMessage?.cancel()
         crossfadeMessage = null
         crossfadeWatchJob?.cancel()
@@ -5272,7 +5308,7 @@ class MusicService :
         stopTailMetering()
         if (isCrossfading) cleanupCrossfade(reschedule = false)
 
-        val incoming = takeIncomingPlayer(player.getMediaItemAt(targetIndex), plan) ?: return
+        val incoming = takeIncomingPlayer(player.getMediaItemAt(targetIndex), plan) ?: return false
 
         // The incoming player only holds the target item; mirror the rest of the queue around it
         // (adding items around the current one doesn't interrupt it) so it can take over.
@@ -5291,6 +5327,7 @@ class MusicService :
         incoming.play()
 
         performCrossfadeSwap(incoming, plan, transitionReason)
+        return true
     }
 
     private fun performCrossfadeSwap(
@@ -5424,6 +5461,10 @@ class MusicService :
         const val MAX_RETRY_COUNT = 10
 
         private const val CROSSFADE_STEPS = 20
+        private const val MANUAL_SKIP_CROSSFADE_MAX_MS = 3_000L
+
+        // Same rule as PlayerConnection.seekToPrevious and Media3's default: later than this restarts the song
+        private const val MANUAL_SKIP_RESTART_THRESHOLD_MS = 3_000L
         private const val CROSSFADE_PREBUFFER_LEAD_MS = 15_000L
         private const val CROSSFADE_POSITION_TOLERANCE_MS = 1_000L
         private const val CROSSFADE_EARLY_START_WINDOW_MS = 10_000L

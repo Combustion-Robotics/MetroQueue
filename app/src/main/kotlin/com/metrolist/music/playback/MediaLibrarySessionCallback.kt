@@ -14,6 +14,7 @@ import androidx.core.net.toUri
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
+import androidx.media3.common.Player
 import androidx.media3.exoplayer.offline.Download
 import androidx.media3.session.LibraryResult
 import androidx.media3.session.MediaConstants.EXTRAS_KEY_IS_EXPLICIT
@@ -109,6 +110,28 @@ constructor(
                 .build(),
             connectionResult.availablePlayerCommands,
         )
+    }
+
+    // Next/previous from the notification, headset, car or watch can become a crossfade
+    override fun onPlayerCommandRequest(
+        session: MediaSession,
+        controller: MediaSession.ControllerInfo,
+        playerCommand: Int,
+    ): Int {
+        val crossfaded =
+            when (playerCommand) {
+                Player.COMMAND_SEEK_TO_NEXT,
+                Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM,
+                -> service.skipWithCrossfade(toNext = true)
+
+                Player.COMMAND_SEEK_TO_PREVIOUS -> service.skipWithCrossfade(toNext = false)
+                else -> false
+            }
+        return if (crossfaded) {
+            SessionResult.RESULT_INFO_SKIPPED
+        } else {
+            super.onPlayerCommandRequest(session, controller, playerCommand)
+        }
     }
 
     override fun onCustomCommand(

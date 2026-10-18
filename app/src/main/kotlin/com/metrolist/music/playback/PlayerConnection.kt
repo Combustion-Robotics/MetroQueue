@@ -421,6 +421,10 @@ class PlayerConnection(
                 castHandler.skipToNext()
                 return
             }
+            if (service.skipWithCrossfade(toNext = true)) {
+                onSkipNext?.invoke()
+                return
+            }
             player.seekToNext()
             if (player.playbackState == Player.STATE_IDLE || player.playbackState == Player.STATE_ENDED) {
                 player.prepare()
@@ -454,11 +458,13 @@ class PlayerConnection(
                 onRestartSong?.invoke()
             } else {
                 // Otherwise go to previous media item
-                player.seekToPreviousMediaItem()
-                if (player.playbackState == Player.STATE_IDLE || player.playbackState == Player.STATE_ENDED) {
-                    player.prepare()
+                if (!service.skipWithCrossfade(toNext = false)) {
+                    player.seekToPreviousMediaItem()
+                    if (player.playbackState == Player.STATE_IDLE || player.playbackState == Player.STATE_ENDED) {
+                        player.prepare()
+                    }
+                    player.playWhenReady = true
                 }
-                player.playWhenReady = true
                 onSkipPrevious?.invoke()
             }
         } catch (e: Exception) {
