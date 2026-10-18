@@ -49,6 +49,9 @@ class MixAudioDecoder(
         /** Not (fully) cached yet; may succeed later. */
         data object NotCached : Result
 
+        /** Decoding needed data that isn't cached, e.g. an index outside the cached range. */
+        data object CacheMiss : Result
+
         /** Can't be decoded; retrying won't help. */
         data object Failed : Result
     }
@@ -148,13 +151,13 @@ class MixAudioDecoder(
                 if (!fromEnd && collector.collectedMs() >= lengthMs) break
             }
             // A read the cache couldn't serve ends the stream early; that region isn't usable
-            if (source.readFailed) return Result.NotCached
+            if (source.readFailed) return Result.CacheMiss
             if (anchorUs == C.TIME_UNSET || collector.count == 0) return Result.Failed
             return Result.Decoded(collector.toPcm(anchorUs / 1000, durationMs))
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            if (source.readFailed) return Result.NotCached
+            if (source.readFailed) return Result.CacheMiss
             Timber.tag(TAG).w(e, "Decoding %s for mix analysis failed", mediaId)
             return Result.Failed
         } finally {

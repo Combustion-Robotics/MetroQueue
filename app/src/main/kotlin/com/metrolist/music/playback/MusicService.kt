@@ -33,6 +33,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.os.PowerManager
+import android.os.SystemClock
 import android.widget.Toast
 import androidx.core.app.NotificationCompat
 import androidx.datastore.preferences.core.Preferences
@@ -149,8 +150,10 @@ import com.metrolist.music.constants.MediaSessionConstants.CommandToggleLike
 import com.metrolist.music.constants.MediaSessionConstants.CommandToggleRepeatMode
 import com.metrolist.music.constants.MediaSessionConstants.CommandToggleShuffle
 import com.metrolist.music.constants.MediaSessionConstants.CommandToggleStartRadio
+import com.metrolist.music.constants.MixMode
 import com.metrolist.music.constants.MixTransitionStyle
 import com.metrolist.music.constants.MixTransitionStyleKey
+import com.metrolist.music.constants.mixMode
 import com.metrolist.music.constants.NewRadioAfterAddedSongsKey
 import com.metrolist.music.constants.PauseListenHistoryKey
 import com.metrolist.music.constants.PauseOnMute
@@ -209,6 +212,10 @@ import com.metrolist.music.playback.alarm.MusicAlarmStore
 import com.metrolist.music.playback.audio.LevelMeterAudioProcessor
 import com.metrolist.music.playback.audio.SilenceDetectorAudioProcessor
 import com.metrolist.music.playback.audio.TransitionFxAudioProcessor
+import com.metrolist.music.playback.mix.MixAnalysis
+import com.metrolist.music.playback.mix.MixAnalysisRepository
+import com.metrolist.music.playback.mix.MixRegion
+import com.metrolist.music.playback.mix.SmartMixPlanner
 import com.metrolist.music.playback.mix.TransitionPlan
 import com.metrolist.music.playback.mix.TransitionStyle
 import com.metrolist.music.playback.queues.EmptyQueue
@@ -323,6 +330,7 @@ class MusicService :
     private var crossfadeGapless = true
     private var crossfadeOnSkip = false
     private var mixTransitionStyle = MixTransitionStyle.AUTO
+    private var smartMixEnabled = false
     private var crossfadeMessage: PlayerMessage? = null
 
     private val secondaryPlayerListener =
@@ -333,7 +341,39 @@ class MusicService :
                 failedIncomingMediaId = secondaryTargetMediaId
                 releaseIncomingPlayer()
             }
+
+            // Its buffer is full, so the start of the next song is likely cached for analysis now
+            override fun onIsLoadingChanged(isLoading: Boolean) {
+                if (!isLoading) scope.launch { requestSmartMixAnalysis(force = true) }
+            }
         }
+
+    /** Analysis of the outgoing song's end and the incoming song's start, for smart mix. */
+    private class SmartMixState(
+        val fromId: String,
+        val toId: String,
+        val headDurationHintMs: Long,
+    ) {
+        var tail: MixAnalysis? = null
+        var head: MixAnalysis? = null
+        var tailDone = false
+        var headDone = false
+        var lastAttemptMs = 0L
+        var retryWhenDone = false
+
+        // What the transition is planned with; only taken over while there is still time for it
+        var appliedTail: MixAnalysis? = null
+        var appliedHead: MixAnalysis? = null
+    }
+
+    private var mixAnalysisRepository: MixAnalysisRepository? = null
+    private var smartMixState: SmartMixState? = null
+    private var smartMixJob: Job? = null
+
+    // Incoming player playing slightly off its normal speed to match the outgoing tempo
+    private var nudgedPlayer: ExoPlayer? = null
+    private var nudgedSpeed = 1f
+    private var tempoNudgeJob: Job? = null
 
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
 
@@ -1193,17 +1233,18 @@ class MusicService :
         combine(
             dataStore.data.map { prefs ->
                 Triple(
-                    prefs[CrossfadeEnabledKey] ?: false,
+                    prefs.mixMode(),
                     prefs[CrossfadeDurationKey] ?: 5f,
                     prefs[CrossfadeGaplessKey] ?: true,
                 )
             },
             listenTogetherManager.roomState,
-        ) { (enabled, duration, gapless), roomState ->
-            Triple(enabled && roomState == null, duration, gapless)
+        ) { (mode, duration, gapless), roomState ->
+            Triple(if (roomState == null) mode else MixMode.OFF, duration, gapless)
         }.distinctUntilChanged()
-            .collect(scope) { (enabled, duration, gapless) ->
-                crossfadeEnabled = enabled
+            .collect(scope) { (mode, duration, gapless) ->
+                crossfadeEnabled = mode != MixMode.OFF
+                smartMixEnabled = mode == MixMode.SMART
                 crossfadeDuration = duration * 1000f // Convert to ms
                 crossfadeGapless = gapless
                 scheduleCrossfade()
@@ -2951,6 +2992,10 @@ class MusicService :
         player: Player,
         events: Player.Events,
     ) {
+        // A full buffer may have brought the end of the song into the cache, for smart mix
+        if (events.contains(Player.EVENT_IS_LOADING_CHANGED) && !player.isLoading) {
+            requestSmartMixAnalysis(force = true)
+        }
         if (events.containsAny(
                 Player.EVENT_PLAYBACK_STATE_CHANGED,
                 Player.EVENT_PLAY_WHEN_READY_CHANGED,
@@ -4516,6 +4561,9 @@ class MusicService :
         crossfadeMessage = null
         crossfadeJob?.cancel()
         crossfadeJob = null
+        cancelSmartMix()
+        mixAnalysisRepository?.release()
+        mixAnalysisRepository = null
         releaseIncomingPlayer()
         fadingPlayer?.let(::releaseExoPlayer)
         fadingPlayer = null
@@ -5019,6 +5067,11 @@ class MusicService :
             if (isCrossfading) cleanupCrossfade(reschedule = false)
             // Re-measure the tail from the new position
             tailMeteredPlayer = null
+            // A smart transition is only kept if it can still start in time from here
+            smartMixState?.let {
+                it.appliedTail = null
+                it.appliedHead = null
+            }
             scheduleCrossfade()
         }
     }
@@ -5035,6 +5088,7 @@ class MusicService :
         crossfadeWatchJob = null
         if (!::player.isInitialized) return
 
+        syncSmartMix()
         val plan = planAutoTransition()
         val targetIndex = autoTransitionTargetIndex()
         if (plan == null || targetIndex == C.INDEX_UNSET) {
@@ -5044,6 +5098,7 @@ class MusicService :
         }
         val target = player.getMediaItemAt(targetIndex)
         if (secondaryTargetMediaId != target.mediaId) releaseIncomingPlayer()
+        requestSmartMixAnalysis()
 
         val position = player.currentPosition
         if (position >= plan.startPositionMs) {
@@ -5067,12 +5122,12 @@ class MusicService :
 
         // A track shorter than the overlap would need a third player; wait for the fade to finish.
         if (secondaryPlayer == null && !isCrossfading && target.mediaId != failedIncomingMediaId) {
-            prepareIncomingPlayer(target, plan.style, scanIntro = plan.incomingStartMs == null)
+            prepareIncomingPlayer(target, plan.style, scanIntro = plan.incomingStartMs == null, startMs = plan.incomingStartMs)
         }
         crossfadeMessage = sendAtPosition(plan.startPositionMs) {
             if (player.currentMediaItem?.mediaId == currentMediaId) startAutoCrossfade()
         }
-        if (plan.allowEarlyStart) watchForAudibleEnd(plan, currentMediaId)
+        if (plan.allowEarlyStart) watchForAudibleEnd(plan, currentMediaId) else stopTailMetering()
     }
 
     private fun watchForAudibleEnd(
@@ -5130,6 +5185,7 @@ class MusicService :
         if (crossfadeGapless && isNextItemGapless()) return null
         if (!player.hasNextMediaItem() && player.repeatMode != REPEAT_MODE_ONE) return null
 
+        smartMixPlan()?.let { return it }
         val style = configuredTransitionStyle()
         if (style == TransitionStyle.CUT) {
             // Switch right at the end, or earlier where the song audibly ends
@@ -5146,7 +5202,7 @@ class MusicService :
         )
     }
 
-    // Auto becomes a per-transition choice with smart mix; until then it is a plain fade
+    // With smart mix, Auto is chosen per transition from the analysis; otherwise it is a plain fade
     private fun configuredTransitionStyle(): TransitionStyle =
         when (mixTransitionStyle) {
             MixTransitionStyle.AUTO, MixTransitionStyle.FADE -> TransitionStyle.FADE
@@ -5155,6 +5211,182 @@ class MusicService :
             MixTransitionStyle.RISE -> TransitionStyle.RISE
             MixTransitionStyle.CUT -> TransitionStyle.CUT
         }
+
+    /** Smart mix's transition for the current pair of songs, once its analysis has been taken over. */
+    private fun smartMixPlan(): TransitionPlan? {
+        val state = smartMixState ?: return null
+        val tail = state.appliedTail ?: return null
+        if (!smartMixMatches(state)) return null
+        return planSmartMix(tail, state.appliedHead)
+    }
+
+    private fun planSmartMix(
+        tail: MixAnalysis,
+        head: MixAnalysis?,
+    ): TransitionPlan? =
+        SmartMixPlanner.plan(
+            outgoing = tail,
+            incoming = head,
+            trackDurationMs = player.duration,
+            configuredDurationMs = crossfadeDuration.toLong(),
+            style = if (mixTransitionStyle == MixTransitionStyle.AUTO) null else configuredTransitionStyle(),
+            // Never on top of the user's own speed or pitch, or of a nudge that is still settling
+            allowTempoNudge = tempoNudgeJob?.isActive != true && player.playbackParameters == PlaybackParameters.DEFAULT,
+        )
+
+    private fun smartMixTarget(): MediaItem? {
+        val index = autoTransitionTargetIndex()
+        return if (index == C.INDEX_UNSET || index >= player.mediaItemCount) null else player.getMediaItemAt(index)
+    }
+
+    private fun smartMixMatches(state: SmartMixState): Boolean =
+        player.currentMediaItem?.mediaId == state.fromId && smartMixTarget()?.mediaId == state.toId
+
+    /**
+     * Follows the pair of songs the next transition is between: a new pair (track or queue
+     * change) drops the old analysis and cancels its work. Finished analysis is taken over here
+     * once the transition can be planned with it.
+     */
+    private fun syncSmartMix() {
+        val fromId = player.currentMediaItem?.mediaId
+        val target = if (smartMixEnabled) smartMixTarget() else null
+        if (fromId == null || target == null) {
+            cancelSmartMix()
+            return
+        }
+        val state = smartMixState
+        if (state == null || state.fromId != fromId || state.toId != target.mediaId) {
+            cancelSmartMix()
+            val durationHintMs = target.metadata?.duration?.takeIf { it > 0 }?.times(1000L) ?: C.TIME_UNSET
+            smartMixState = SmartMixState(fromId, target.mediaId, durationHintMs)
+            return
+        }
+        applySmartMixAnalysis(state)
+    }
+
+    private fun cancelSmartMix() {
+        smartMixJob?.cancel()
+        smartMixJob = null
+        smartMixState = null
+    }
+
+    /**
+     * Analyses the end of the current song and the start of the next one from cached audio,
+     * unless that's done. Audio that isn't cached yet is retried when either player has filled
+     * its buffer ([force]), or on later scheduling at most every [SMART_MIX_RETRY_MS].
+     */
+    private fun requestSmartMixAnalysis(force: Boolean = false) {
+        val state = smartMixState ?: return
+        if (state.tailDone && state.headDone) return
+        if (smartMixJob?.isActive == true) {
+            if (force) state.retryWhenDone = true
+            return
+        }
+        // Not while two players are playing; the fade's end schedules the next transition anyway
+        if (isCrossfading || !smartMixMatches(state)) return
+        // Buffer events also come while no transition is planned (paused, gapless album)
+        if (force && planAutoTransition() == null) return
+        val now = SystemClock.elapsedRealtime()
+        if (!force && state.lastAttemptMs != 0L && now - state.lastAttemptMs < SMART_MIX_RETRY_MS) return
+        state.lastAttemptMs = now
+        state.retryWhenDone = false
+        val repository =
+            mixAnalysisRepository
+                ?: MixAnalysisRepository(this, listOf(downloadCache, playerCache)).also { mixAnalysisRepository = it }
+        val tailDurationHintMs = player.duration
+        smartMixJob =
+            scope.launch {
+                if (!state.tailDone) {
+                    when (val outcome = repository.analysis(state.fromId, MixRegion.TAIL, tailDurationHintMs)) {
+                        is MixAnalysisRepository.Outcome.Ready -> {
+                            state.tail = outcome.analysis
+                            state.tailDone = true
+                        }
+                        // Nothing to plan from; the next song's start alone isn't used
+                        MixAnalysisRepository.Outcome.Unavailable -> {
+                            state.tailDone = true
+                            state.headDone = true
+                        }
+                        MixAnalysisRepository.Outcome.Pending -> Unit
+                    }
+                }
+                if (!state.headDone) {
+                    when (val outcome = repository.analysis(state.toId, MixRegion.HEAD, state.headDurationHintMs)) {
+                        is MixAnalysisRepository.Outcome.Ready -> {
+                            state.head = outcome.analysis
+                            state.headDone = true
+                        }
+                        MixAnalysisRepository.Outcome.Unavailable -> state.headDone = true
+                        MixAnalysisRepository.Outcome.Pending -> Unit
+                    }
+                }
+                if (smartMixState !== state) return@launch
+                if (applySmartMixAnalysis(state)) scheduleCrossfade()
+                // Launched separately, so this job is no longer active when it runs
+                if (state.retryWhenDone) scope.launch { requestSmartMixAnalysis(force = true) }
+            }
+    }
+
+    /**
+     * Plans the transition with finished analysis, if the transition it plans can still start in
+     * time (the analysis may only finish shortly before the end). Returns whether it changed.
+     */
+    private fun applySmartMixAnalysis(state: SmartMixState): Boolean {
+        val tail = state.tail ?: return false
+        if (state.appliedTail === tail && state.appliedHead === state.head) return false
+        if (isCrossfading || !smartMixMatches(state)) return false
+        val plan = planSmartMix(tail, state.head) ?: return false
+        val prebuffered = secondaryPlayer != null && secondaryTargetMediaId == state.toId
+        val leadMs = if (prebuffered) SMART_MIX_PREBUFFERED_LEAD_MS else SMART_MIX_LEAD_MS
+        if (player.currentPosition > plan.startPositionMs - leadMs) return false
+        state.appliedTail = tail
+        state.appliedHead = state.head
+        if (prebuffered) secondaryPlayer?.let { retargetIncomingPlayer(it, plan) }
+        return true
+    }
+
+    /** Updates a player pre-buffered for an earlier plan: its effect's starting state and start position. */
+    private fun retargetIncomingPlayer(
+        incoming: ExoPlayer,
+        plan: TransitionPlan,
+    ) {
+        val fx = playerTransitionFx[incoming]
+        val effect = plan.style.fxEffect()
+        if (effect != null) fx?.prime(effect, TransitionFxAudioProcessor.Role.INCOMING) else fx?.stop()
+        val startMs = plan.incomingStartMs ?: return
+        // The analysis replaces the intro scan, which may be playing the muted player
+        introScanJob?.cancel()
+        introScanJob = null
+        playerLevelMeters[incoming]?.stopIntroScan()
+        incoming.pause()
+        if (incoming.currentPosition != startMs) incoming.seekTo(startMs)
+    }
+
+    /**
+     * Returns the tempo-nudged player to normal speed: in a few steps once its transition is over
+     * ([gradual]), or at once when the transition is cancelled. A speed the user set meanwhile is kept.
+     */
+    private fun endTempoNudge(gradual: Boolean) {
+        val nudged = nudgedPlayer ?: return
+        tempoNudgeJob?.cancel()
+        tempoNudgeJob = null
+        if (!gradual) {
+            nudgedPlayer = null
+            if (nudged.playbackParameters.speed == nudgedSpeed) nudged.playbackParameters = PlaybackParameters.DEFAULT
+            return
+        }
+        val fromSpeed = nudgedSpeed
+        tempoNudgeJob =
+            scope.launch {
+                for (step in 1..TEMPO_NUDGE_STEPS) {
+                    delay(TEMPO_NUDGE_STEP_MS)
+                    if (nudged.playbackParameters.speed != nudgedSpeed) break
+                    nudgedSpeed = if (step == TEMPO_NUDGE_STEPS) 1f else fromSpeed + (1f - fromSpeed) * step / TEMPO_NUDGE_STEPS
+                    nudged.playbackParameters = PlaybackParameters(nudgedSpeed)
+                }
+                nudgedPlayer = null
+            }
+    }
 
     // For repeat-one, crossfade back into the same track
     private fun autoTransitionTargetIndex(): Int =
@@ -5227,12 +5459,13 @@ class MusicService :
         target: MediaItem,
         style: TransitionStyle,
         scanIntro: Boolean,
+        startMs: Long? = null,
     ) {
         val incoming = createExoPlayer()
         // Before it pre-rolls, so its first buffered audio already has the effect's starting state
         style.fxEffect()?.let { playerTransitionFx[incoming]?.prime(it, TransitionFxAudioProcessor.Role.INCOMING) }
         incoming.addListener(secondaryPlayerListener)
-        incoming.setMediaItem(target)
+        if (startMs != null) incoming.setMediaItem(target, startMs) else incoming.setMediaItem(target)
         incoming.playbackParameters = player.playbackParameters
         incoming.volume = 0f
         incoming.playWhenReady = false
@@ -5318,7 +5551,7 @@ class MusicService :
     ): ExoPlayer? {
         if (secondaryTargetMediaId != target.mediaId) {
             releaseIncomingPlayer()
-            prepareIncomingPlayer(target, plan.style, scanIntro = false)
+            prepareIncomingPlayer(target, plan.style, scanIntro = false, startMs = plan.incomingStartMs)
         }
         val incoming = secondaryPlayer ?: return null
         secondaryPlayer = null
@@ -5361,6 +5594,7 @@ class MusicService :
         crossfadeWatchJob = null
         stopTailMetering()
         if (isCrossfading) cleanupCrossfade(reschedule = false)
+        endTempoNudge(gradual = false)
 
         val incoming = takeIncomingPlayer(player.getMediaItemAt(targetIndex), plan) ?: return false
 
@@ -5376,7 +5610,13 @@ class MusicService :
         incoming.repeatMode = player.repeatMode
         incoming.shuffleModeEnabled = player.shuffleModeEnabled
         incoming.setShuffleOrder(player.shuffleOrder)
-        incoming.playbackParameters = player.playbackParameters
+        if (plan.incomingSpeed != 1f) {
+            incoming.playbackParameters = PlaybackParameters(plan.incomingSpeed)
+            nudgedPlayer = incoming
+            nudgedSpeed = plan.incomingSpeed
+        } else {
+            incoming.playbackParameters = player.playbackParameters
+        }
         incoming.volume = 0f
         incoming.play()
 
@@ -5465,6 +5705,7 @@ class MusicService :
                     delay(stepTime)
                 }
 
+                endTempoNudge(gradual = true)
                 cleanupCrossfade()
             }
     }
@@ -5493,6 +5734,8 @@ class MusicService :
     private fun cleanupCrossfade(reschedule: Boolean = true) {
         crossfadeJob?.cancel()
         crossfadeJob = null
+        // A cancelled transition leaves no nudged tempo behind; a finished one is already easing back
+        if (tempoNudgeJob?.isActive != true) endTempoNudge(gradual = false)
         // Never leave the surviving player filtered, e.g. when a transition is cancelled midway
         playerTransitionFx[player]?.stop()
         player.removeListener(crossfadeSyncListener)
@@ -5520,6 +5763,11 @@ class MusicService :
     }
 
     private fun releaseExoPlayer(player: ExoPlayer) {
+        if (nudgedPlayer === player) {
+            tempoNudgeJob?.cancel()
+            tempoNudgeJob = null
+            nudgedPlayer = null
+        }
         playerNormalizationProcessors.remove(player)
         playerSilenceProcessors.remove(player)
         playerLevelMeters.remove(player)
@@ -5569,6 +5817,11 @@ class MusicService :
         private const val INTRO_SKIP_MIN_MS = 500L
         private const val INTRO_SKIP_MAX_MS = 10_000L
         private const val INTRO_SKIP_PREROLL_MS = 100L
+        private const val SMART_MIX_RETRY_MS = 10_000L
+        private const val SMART_MIX_LEAD_MS = 5_000L
+        private const val SMART_MIX_PREBUFFERED_LEAD_MS = 1_500L
+        private const val TEMPO_NUDGE_STEPS = 4
+        private const val TEMPO_NUDGE_STEP_MS = 1_500L
         private const val INITIAL_BUFFER_RECOVERY_DELAY_MS = 15_000L
         private const val INITIAL_BUFFER_RECOVERY_POSITION_MS = 5_000L
         private const val TAG = "MusicService"

@@ -32,6 +32,8 @@ enum class TransitionStyle {
  *   outgoing track has audibly ended (faded out or gone silent).
  * @param echoDelayMs echo repeat interval for [TransitionStyle.ECHO] (e.g. synced to the tempo);
  *   null uses the default.
+ * @param incomingSpeed playback speed of the incoming track during the overlap, e.g. 1.03 to match
+ *   the outgoing tempo; it returns to normal speed in a few steps afterwards.
  */
 data class TransitionPlan(
     val startPositionMs: Long,
@@ -40,4 +42,5 @@ data class TransitionPlan(
     val style: TransitionStyle = TransitionStyle.FADE,
     val allowEarlyStart: Boolean = true,
     val echoDelayMs: Long? = null,
+    val incomingSpeed: Float = 1f,
 )

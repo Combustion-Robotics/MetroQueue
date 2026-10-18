@@ -5,6 +5,7 @@
 
 package com.metrolist.music.constants
 
+import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
@@ -167,6 +168,25 @@ enum class MixTransitionStyle {
     RISE,
     CUT,
 }
+
+val MixModeKey = stringPreferencesKey("mixMode")
+
+enum class MixMode {
+    OFF,
+    CROSSFADE,
+    SMART,
+}
+
+/**
+ * [CrossfadeEnabledKey] stays the on/off switch, so settings from before the mix modes and the
+ * code paths that read it keep working; [MixModeKey] tells Crossfade and Smart mix apart.
+ */
+fun Preferences.mixMode(): MixMode =
+    when {
+        this[CrossfadeEnabledKey] != true -> MixMode.OFF
+        this[MixModeKey] == MixMode.SMART.name -> MixMode.SMART
+        else -> MixMode.CROSSFADE
+    }
 
 val MaxImageCacheSizeKey = intPreferencesKey("maxImageCacheSize")
 val MaxSongCacheSizeKey = intPreferencesKey("maxSongCacheSize")

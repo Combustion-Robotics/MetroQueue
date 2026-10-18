@@ -49,8 +49,10 @@ class MixAnalysisRepository(
                 )
             }.asCoroutineDispatcher()
 
-    // Confined to the analysis thread; regions that failed to decode or analyse in this session
+    // Confined to the analysis thread: regions that failed to decode or analyse in this session,
+    // and how often decoding a region ran into uncached data
     private val unavailable = HashSet<String>()
+    private val cacheMisses = HashMap<String, Int>()
 
     suspend fun analysis(
         mediaId: String,
@@ -63,6 +65,19 @@ class MixAnalysisRepository(
             if (key in unavailable) return@withContext Outcome.Unavailable
             when (val decoded = decoder.decode(mediaId, region == MixRegion.TAIL, REGION_MS, durationHintMs)) {
                 MixAudioDecoder.Result.NotCached -> Outcome.Pending
+                // Retried once, as more may be cached by then; decoding is too costly to keep trying
+                MixAudioDecoder.Result.CacheMiss -> {
+                    val misses = (cacheMisses[key] ?: 0) + 1
+                    if (misses >= MAX_CACHE_MISSES) {
+                        cacheMisses.remove(key)
+                        markUnavailable(key)
+                        Outcome.Unavailable
+                    } else {
+                        if (cacheMisses.size >= MAX_UNAVAILABLE) cacheMisses.clear()
+                        cacheMisses[key] = misses
+                        Outcome.Pending
+                    }
+                }
                 MixAudioDecoder.Result.Failed -> {
                     markUnavailable(key)
                     Outcome.Unavailable
@@ -93,5 +108,6 @@ class MixAnalysisRepository(
         const val REGION_MS = 30_000L
         private const val STORE_FILE = "mix_analysis.json"
         private const val MAX_UNAVAILABLE = 200
+        private const val MAX_CACHE_MISSES = 2
     }
 }
