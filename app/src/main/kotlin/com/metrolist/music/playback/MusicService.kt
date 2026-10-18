@@ -212,6 +212,9 @@ import com.metrolist.music.playback.alarm.MusicAlarmStore
 import com.metrolist.music.playback.audio.LevelMeterAudioProcessor
 import com.metrolist.music.playback.audio.SilenceDetectorAudioProcessor
 import com.metrolist.music.playback.audio.TransitionFxAudioProcessor
+import com.metrolist.music.playback.mix.CustomTransition
+import com.metrolist.music.playback.mix.CustomTransitionPlanner
+import com.metrolist.music.playback.mix.CustomTransitionRepository
 import com.metrolist.music.playback.mix.MixAnalysis
 import com.metrolist.music.playback.mix.MixAnalysisRepository
 import com.metrolist.music.playback.mix.MixRegion
@@ -316,6 +319,9 @@ class MusicService :
     @Inject
     lateinit var listenTogetherManager: com.metrolist.music.listentogether.ListenTogetherManager
 
+    @Inject
+    lateinit var customTransitions: CustomTransitionRepository
+
     private lateinit var audioManager: AudioManager
     private var audioFocusRequest: AudioFocusRequest? = null
     private var lastAudioFocusState = AudioManager.AUDIOFOCUS_NONE
@@ -332,6 +338,9 @@ class MusicService :
     private var mixTransitionStyle = MixTransitionStyle.AUTO
     private var smartMixEnabled = false
     private var crossfadeMessage: PlayerMessage? = null
+
+    // The custom transition the pending transition was last scheduled with
+    private var scheduledCustomTransition: CustomTransition? = null
 
     private val secondaryPlayerListener =
         object : Player.Listener {
@@ -1263,6 +1272,13 @@ class MusicService :
                 // A cut starts at a different point than an overlap
                 scheduleCrossfade()
             }
+
+        // An edit of the coming transition; during a fade, its end reschedules anyway
+        customTransitions.transitions.collect(scope) {
+            if (::player.isInitialized && !isCrossfading && currentCustomTransition() != scheduledCustomTransition) {
+                scheduleCrossfade()
+            }
+        }
 
         // Observe and cache common preferences to avoid runBlocking reads in playback callbacks
         scope.launch {
@@ -5089,6 +5105,12 @@ class MusicService :
         if (!::player.isInitialized) return
 
         syncSmartMix()
+        val customTransition = currentCustomTransition()
+        if (customTransition != scheduledCustomTransition) {
+            scheduledCustomTransition = customTransition
+            // A next song pre-buffered for another transition may be positioned and primed for that one
+            releaseIncomingPlayer()
+        }
         val plan = planAutoTransition()
         val targetIndex = autoTransitionTargetIndex()
         if (plan == null || targetIndex == C.INDEX_UNSET) {
@@ -5168,8 +5190,13 @@ class MusicService :
             send()
         }
 
+    /**
+     * The transition out of the current track: the user's custom transition for this pair of
+     * songs, else smart mix's, else the configured crossfade. Custom transitions apply in every
+     * mode but Off, also between songs of one album.
+     */
     private fun planAutoTransition(): TransitionPlan? {
-        if (!crossfadeEnabled || crossfadeDuration <= 0f || taskCleared) return null
+        if (!crossfadeEnabled || taskCleared) return null
         if (castConnectionHandler?.isCasting?.value == true) return null
         if (!player.playWhenReady ||
             player.playbackState == Player.STATE_IDLE ||
@@ -5179,11 +5206,18 @@ class MusicService :
         }
         if (sleepTimer?.pauseWhenSongEnd == true) return null
 
-        val durationMs = crossfadeDuration.toLong()
         val trackDurationMs = player.duration
-        if (trackDurationMs == C.TIME_UNSET || trackDurationMs <= durationMs) return null
-        if (crossfadeGapless && isNextItemGapless()) return null
+        if (trackDurationMs == C.TIME_UNSET) return null
         if (!player.hasNextMediaItem() && player.repeatMode != REPEAT_MODE_ONE) return null
+
+        currentCustomTransition()?.let { custom ->
+            val state = smartMixState?.takeIf { smartMixMatches(it) }
+            planCustomTransition(custom, state?.appliedTail, state?.appliedHead)?.let { return it }
+        }
+
+        val durationMs = crossfadeDuration.toLong()
+        if (durationMs <= 0L || trackDurationMs <= durationMs) return null
+        if (crossfadeGapless && isNextItemGapless()) return null
 
         smartMixPlan()?.let { return it }
         val style = configuredTransitionStyle()
@@ -5214,6 +5248,7 @@ class MusicService :
 
     /** Smart mix's transition for the current pair of songs, once its analysis has been taken over. */
     private fun smartMixPlan(): TransitionPlan? {
+        if (!smartMixEnabled) return null
         val state = smartMixState ?: return null
         val tail = state.appliedTail ?: return null
         if (!smartMixMatches(state)) return null
@@ -5230,9 +5265,25 @@ class MusicService :
             trackDurationMs = player.duration,
             configuredDurationMs = crossfadeDuration.toLong(),
             style = if (mixTransitionStyle == MixTransitionStyle.AUTO) null else configuredTransitionStyle(),
-            // Never on top of the user's own speed or pitch, or of a nudge that is still settling
-            allowTempoNudge = tempoNudgeJob?.isActive != true && player.playbackParameters == PlaybackParameters.DEFAULT,
+            allowTempoNudge = tempoNudgeAllowed(),
         )
+
+    private fun planCustomTransition(
+        custom: CustomTransition,
+        tail: MixAnalysis?,
+        head: MixAnalysis?,
+    ): TransitionPlan? = CustomTransitionPlanner.plan(custom, player.duration, tail, head, tempoNudgeAllowed())
+
+    // Never on top of the user's own speed or pitch, or of a nudge that is still settling
+    private fun tempoNudgeAllowed(): Boolean =
+        tempoNudgeJob?.isActive != true && player.playbackParameters == PlaybackParameters.DEFAULT
+
+    /** The user's transition from the current song into the one the next transition goes to. */
+    private fun currentCustomTransition(): CustomTransition? {
+        val fromId = player.currentMediaItem?.mediaId ?: return null
+        val toId = smartMixTarget()?.mediaId ?: return null
+        return customTransitions.get(fromId, toId)
+    }
 
     private fun smartMixTarget(): MediaItem? {
         val index = autoTransitionTargetIndex()
@@ -5249,7 +5300,8 @@ class MusicService :
      */
     private fun syncSmartMix() {
         val fromId = player.currentMediaItem?.mediaId
-        val target = if (smartMixEnabled) smartMixTarget() else null
+        // Custom transitions use the analysis too, for automatic positions and tempo matching
+        val target = smartMixTarget()?.takeIf { smartMixEnabled || currentCustomTransition() != null }
         if (fromId == null || target == null) {
             cancelSmartMix()
             return
@@ -5290,9 +5342,7 @@ class MusicService :
         if (!force && state.lastAttemptMs != 0L && now - state.lastAttemptMs < SMART_MIX_RETRY_MS) return
         state.lastAttemptMs = now
         state.retryWhenDone = false
-        val repository =
-            mixAnalysisRepository
-                ?: MixAnalysisRepository(this, listOf(downloadCache, playerCache)).also { mixAnalysisRepository = it }
+        val repository = mixAnalysisRepository()
         val tailDurationHintMs = player.duration
         smartMixJob =
             scope.launch {
@@ -5335,7 +5385,10 @@ class MusicService :
         val tail = state.tail ?: return false
         if (state.appliedTail === tail && state.appliedHead === state.head) return false
         if (isCrossfading || !smartMixMatches(state)) return false
-        val plan = planSmartMix(tail, state.head) ?: return false
+        val plan =
+            currentCustomTransition()?.let { planCustomTransition(it, tail, state.head) }
+                ?: (if (smartMixEnabled) planSmartMix(tail, state.head) else null)
+                ?: return false
         val prebuffered = secondaryPlayer != null && secondaryTargetMediaId == state.toId
         val leadMs = if (prebuffered) SMART_MIX_PREBUFFERED_LEAD_MS else SMART_MIX_LEAD_MS
         if (player.currentPosition > plan.startPositionMs - leadMs) return false
@@ -5452,6 +5505,33 @@ class MusicService :
                 allowEarlyStart = false,
             )
         return startCrossfade(targetIndex, plan, Player.MEDIA_ITEM_TRANSITION_REASON_SEEK)
+    }
+
+    private fun mixAnalysisRepository(): MixAnalysisRepository =
+        mixAnalysisRepository
+            ?: MixAnalysisRepository(this, listOf(downloadCache, playerCache)).also { mixAnalysisRepository = it }
+
+    /** Analysis for the transition editor, from the analysis cache or cached audio; null when there is none. */
+    suspend fun mixAnalysis(
+        mediaId: String,
+        region: MixRegion,
+        durationHintMs: Long,
+    ): MixAnalysis? =
+        (mixAnalysisRepository().analysis(mediaId, region, durationHintMs) as? MixAnalysisRepository.Outcome.Ready)?.analysis
+
+    /**
+     * Seeks to shortly before the transition out of the current song, to hear it. Returns false
+     * unless [fromId] is playing with [toId] next and a transition between them is planned.
+     */
+    fun previewTransition(
+        fromId: String,
+        toId: String,
+    ): Boolean {
+        if (!::player.isInitialized || isCrossfading || !player.isPlaying) return false
+        if (player.currentMediaItem?.mediaId != fromId || smartMixTarget()?.mediaId != toId) return false
+        val plan = planAutoTransition() ?: return false
+        player.seekTo((plan.startPositionMs - TRANSITION_PREVIEW_LEAD_MS).coerceAtLeast(0L))
+        return true
     }
 
     /** Creates the paused, silent incoming player for [target] so the transition can start instantly. */
@@ -5820,6 +5900,9 @@ class MusicService :
         private const val SMART_MIX_RETRY_MS = 10_000L
         private const val SMART_MIX_LEAD_MS = 5_000L
         private const val SMART_MIX_PREBUFFERED_LEAD_MS = 1_500L
+
+        // Longer than SMART_MIX_LEAD_MS, so analysis taken over before the seek is kept
+        private const val TRANSITION_PREVIEW_LEAD_MS = 8_000L
         private const val TEMPO_NUDGE_STEPS = 4
         private const val TEMPO_NUDGE_STEP_MS = 1_500L
         private const val INITIAL_BUFFER_RECOVERY_DELAY_MS = 15_000L

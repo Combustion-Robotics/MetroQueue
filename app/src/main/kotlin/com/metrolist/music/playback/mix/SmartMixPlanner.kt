@@ -88,14 +88,7 @@ object SmartMixPlanner {
                 endOfAudioMs - durationMs
             }
 
-        val incomingSpeed =
-            if (allowTempoNudge && tempoRatio != null && tempoMatch &&
-                abs(tempoRatio - 1) in MIN_TEMPO_NUDGE..MAX_TEMPO_NUDGE
-            ) {
-                tempoRatio.toFloat()
-            } else {
-                1f
-            }
+        val incomingSpeed = if (allowTempoNudge) nudgeSpeed(tempoRatio) else 1f
 
         if (tempoMatch && incoming != null && beatMs > 0) {
             // Land the incoming song's first beat on a beat of the outgoing one. Rounding down
@@ -114,7 +107,7 @@ object SmartMixPlanner {
             incomingStartMs = incomingStartMs,
             style = chosenStyle,
             allowEarlyStart = false,
-            echoDelayMs = if (outgoing.hasConfidentTempo) (beatMs * ECHO_BEATS).roundToLong() else null,
+            echoDelayMs = echoDelayMs(outgoing),
             incomingSpeed = incomingSpeed,
         )
     }
@@ -134,8 +127,16 @@ object SmartMixPlanner {
         return ratio
     }
 
+    /** Speed for the incoming song that matches [tempoRatio], or 1 when the tempos are too far apart or already match. */
+    fun nudgeSpeed(tempoRatio: Double?): Float =
+        if (tempoRatio != null && abs(tempoRatio - 1) in MIN_TEMPO_NUDGE..MAX_TEMPO_NUDGE) tempoRatio.toFloat() else 1f
+
+    /** Echo repeats synced to the outgoing tempo, when it is known. */
+    fun echoDelayMs(outgoing: MixAnalysis): Long? =
+        if (outgoing.hasConfidentTempo) (outgoing.beatMs * ECHO_BEATS).roundToLong() else null
+
     // Same rules as the level-meter intro skip: only real leading silence, never half the song
-    private fun introSkipMs(incoming: MixAnalysis): Long {
+    fun introSkipMs(incoming: MixAnalysis): Long {
         val silenceMs = incoming.audioStartMs
         if (silenceMs < INTRO_SKIP_MIN_MS || silenceMs >= incoming.trackDurationMs / 2) return 0L
         return (silenceMs - INTRO_SKIP_PREROLL_MS).coerceAtMost(INTRO_SKIP_MAX_MS)
