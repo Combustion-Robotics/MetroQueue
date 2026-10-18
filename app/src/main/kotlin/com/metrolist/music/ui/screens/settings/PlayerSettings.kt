@@ -56,6 +56,8 @@ import com.metrolist.music.constants.HistoryDuration
 import com.metrolist.music.constants.KeepScreenOn
 import com.metrolist.music.constants.LoudnessLevel
 import com.metrolist.music.constants.LoudnessLevelKey
+import com.metrolist.music.constants.MixTransitionStyle
+import com.metrolist.music.constants.MixTransitionStyleKey
 import com.metrolist.music.constants.NewRadioAfterAddedSongsKey
 import com.metrolist.music.constants.PauseOnMute
 import com.metrolist.music.constants.PersistentQueueKey
@@ -117,6 +119,10 @@ fun PlayerSettings(
     val (crossfadeOnSkip, onCrossfadeOnSkipChange) = rememberPreference(
         CrossfadeOnSkipKey,
         defaultValue = false
+    )
+    val (mixTransitionStyle, onMixTransitionStyleChange) = rememberEnumPreference(
+        MixTransitionStyleKey,
+        defaultValue = MixTransitionStyle.AUTO
     )
     val (persistentQueue, onPersistentQueueChange) = rememberPreference(
         PersistentQueueKey,
@@ -266,6 +272,25 @@ fun PlayerSettings(
         )
     }
 
+    var showTransitionStyleDialog by remember {
+        mutableStateOf(false)
+    }
+
+    if (showTransitionStyleDialog) {
+        EnumDialog(
+            onDismiss = { showTransitionStyleDialog = false },
+            onSelect = {
+                onMixTransitionStyleChange(it)
+                showTransitionStyleDialog = false
+            },
+            title = stringResource(R.string.mix_transition_style),
+            current = mixTransitionStyle,
+            values = MixTransitionStyle.entries,
+            valueText = { transitionStyleLabel(it) },
+            valueDescription = { transitionStyleDescription(it) }
+        )
+    }
+
     if (showLoudnessLevelDialog) {
         EnumDialog(
             onDismiss = { showLoudnessLevelDialog = false },
@@ -315,86 +340,6 @@ fun PlayerSettings(
                     },
                     onClick = { showAudioQualityDialog = true }
                 ))
-                add(Material3SettingsItem(
-                    icon = painterResource(R.drawable.linear_scale),
-                    title = { Text(stringResource(R.string.crossfade)) },
-                    description = { Text(stringResource(R.string.crossfade_desc)) },
-                    trailingContent = {
-                        Switch(
-                            checked = crossfadeEnabled,
-                            onCheckedChange = onCrossfadeEnabledChange,
-                            thumbContent = {
-                                Icon(
-                                    painter = painterResource(
-                                        id = if (crossfadeEnabled) R.drawable.check else R.drawable.close
-                                    ),
-                                    contentDescription = null,
-                                    modifier = Modifier.size(SwitchDefaults.IconSize)
-                                )
-                            }
-                        )
-                    },
-                    onClick = { onCrossfadeEnabledChange(!crossfadeEnabled) }
-                ))
-                if (crossfadeEnabled) {
-                    add(Material3SettingsItem(
-                        icon = painterResource(R.drawable.timer),
-                        title = { Text(stringResource(R.string.crossfade_duration)) },
-                        description = {
-                            Column {
-                                Text(pluralStringResource(R.plurals.seconds, crossfadeDuration.toInt(), crossfadeDuration.toInt()))
-                                Slider(
-                                    value = crossfadeDuration,
-                                    onValueChange = onCrossfadeDurationChange,
-                                    valueRange = 1f..15f,
-                                    steps = 14
-                                )
-                            }
-                        }
-                    ))
-                    add(Material3SettingsItem(
-                        icon = painterResource(R.drawable.album),
-                        title = { Text(stringResource(R.string.crossfade_gapless)) },
-                        description = { Text(stringResource(R.string.crossfade_gapless_desc)) },
-                        trailingContent = {
-                            Switch(
-                                checked = crossfadeGapless,
-                                onCheckedChange = onCrossfadeGaplessChange,
-                                thumbContent = {
-                                    Icon(
-                                        painter = painterResource(
-                                            id = if (crossfadeGapless) R.drawable.check else R.drawable.close
-                                        ),
-                                        contentDescription = null,
-                                        modifier = Modifier.size(SwitchDefaults.IconSize)
-                                    )
-                                }
-                            )
-                        },
-                        onClick = { onCrossfadeGaplessChange(!crossfadeGapless) }
-                    ))
-                    add(Material3SettingsItem(
-                        icon = painterResource(R.drawable.skip_next),
-                        title = { Text(stringResource(R.string.crossfade_on_skip)) },
-                        description = { Text(stringResource(R.string.crossfade_on_skip_desc)) },
-                        trailingContent = {
-                            Switch(
-                                checked = crossfadeOnSkip,
-                                onCheckedChange = onCrossfadeOnSkipChange,
-                                thumbContent = {
-                                    Icon(
-                                        painter = painterResource(
-                                            id = if (crossfadeOnSkip) R.drawable.check else R.drawable.close
-                                        ),
-                                        contentDescription = null,
-                                        modifier = Modifier.size(SwitchDefaults.IconSize)
-                                    )
-                                }
-                            )
-                        },
-                        onClick = { onCrossfadeOnSkipChange(!crossfadeOnSkip) }
-                    ))
-                }
                 add(Material3SettingsItem(
                     icon = painterResource(R.drawable.history),
                     title = { Text(stringResource(R.string.history_duration)) },
@@ -602,6 +547,100 @@ fun PlayerSettings(
                     },
                     onClick = { onSeekExtraSeconds(!seekExtraSeconds) }
                 ))
+            }
+        )
+
+        Spacer(modifier = Modifier.height(27.dp))
+
+        Material3SettingsGroup(
+            title = stringResource(R.string.mix_settings),
+            items = buildList {
+                add(Material3SettingsItem(
+                    icon = painterResource(R.drawable.linear_scale),
+                    title = { Text(stringResource(R.string.crossfade)) },
+                    description = { Text(stringResource(R.string.crossfade_desc)) },
+                    trailingContent = {
+                        Switch(
+                            checked = crossfadeEnabled,
+                            onCheckedChange = onCrossfadeEnabledChange,
+                            thumbContent = {
+                                Icon(
+                                    painter = painterResource(
+                                        id = if (crossfadeEnabled) R.drawable.check else R.drawable.close
+                                    ),
+                                    contentDescription = null,
+                                    modifier = Modifier.size(SwitchDefaults.IconSize)
+                                )
+                            }
+                        )
+                    },
+                    onClick = { onCrossfadeEnabledChange(!crossfadeEnabled) }
+                ))
+                if (crossfadeEnabled) {
+                    add(Material3SettingsItem(
+                        icon = painterResource(R.drawable.timer),
+                        title = { Text(stringResource(R.string.crossfade_duration)) },
+                        description = {
+                            Column {
+                                Text(pluralStringResource(R.plurals.seconds, crossfadeDuration.toInt(), crossfadeDuration.toInt()))
+                                Slider(
+                                    value = crossfadeDuration,
+                                    onValueChange = onCrossfadeDurationChange,
+                                    valueRange = 1f..15f,
+                                    steps = 14
+                                )
+                            }
+                        }
+                    ))
+                    add(Material3SettingsItem(
+                        icon = painterResource(R.drawable.tune),
+                        title = { Text(stringResource(R.string.mix_transition_style)) },
+                        description = { Text(transitionStyleLabel(mixTransitionStyle)) },
+                        onClick = { showTransitionStyleDialog = true }
+                    ))
+                    add(Material3SettingsItem(
+                        icon = painterResource(R.drawable.album),
+                        title = { Text(stringResource(R.string.crossfade_gapless)) },
+                        description = { Text(stringResource(R.string.crossfade_gapless_desc)) },
+                        trailingContent = {
+                            Switch(
+                                checked = crossfadeGapless,
+                                onCheckedChange = onCrossfadeGaplessChange,
+                                thumbContent = {
+                                    Icon(
+                                        painter = painterResource(
+                                            id = if (crossfadeGapless) R.drawable.check else R.drawable.close
+                                        ),
+                                        contentDescription = null,
+                                        modifier = Modifier.size(SwitchDefaults.IconSize)
+                                    )
+                                }
+                            )
+                        },
+                        onClick = { onCrossfadeGaplessChange(!crossfadeGapless) }
+                    ))
+                    add(Material3SettingsItem(
+                        icon = painterResource(R.drawable.skip_next),
+                        title = { Text(stringResource(R.string.crossfade_on_skip)) },
+                        description = { Text(stringResource(R.string.crossfade_on_skip_desc)) },
+                        trailingContent = {
+                            Switch(
+                                checked = crossfadeOnSkip,
+                                onCheckedChange = onCrossfadeOnSkipChange,
+                                thumbContent = {
+                                    Icon(
+                                        painter = painterResource(
+                                            id = if (crossfadeOnSkip) R.drawable.check else R.drawable.close
+                                        ),
+                                        contentDescription = null,
+                                        modifier = Modifier.size(SwitchDefaults.IconSize)
+                                    )
+                                }
+                            )
+                        },
+                        onClick = { onCrossfadeOnSkipChange(!crossfadeOnSkip) }
+                    ))
+                }
             }
         )
 
@@ -1186,3 +1225,29 @@ fun PlayerSettings(
         }
     )
 }
+
+@Composable
+private fun transitionStyleLabel(style: MixTransitionStyle): String =
+    stringResource(
+        when (style) {
+            MixTransitionStyle.AUTO -> R.string.mix_transition_auto
+            MixTransitionStyle.FADE -> R.string.mix_transition_fade
+            MixTransitionStyle.FILTER -> R.string.mix_transition_filter
+            MixTransitionStyle.ECHO -> R.string.mix_transition_echo
+            MixTransitionStyle.RISE -> R.string.mix_transition_rise
+            MixTransitionStyle.CUT -> R.string.mix_transition_cut
+        }
+    )
+
+@Composable
+private fun transitionStyleDescription(style: MixTransitionStyle): String =
+    stringResource(
+        when (style) {
+            MixTransitionStyle.AUTO -> R.string.mix_transition_auto_desc
+            MixTransitionStyle.FADE -> R.string.mix_transition_fade_desc
+            MixTransitionStyle.FILTER -> R.string.mix_transition_filter_desc
+            MixTransitionStyle.ECHO -> R.string.mix_transition_echo_desc
+            MixTransitionStyle.RISE -> R.string.mix_transition_rise_desc
+            MixTransitionStyle.CUT -> R.string.mix_transition_cut_desc
+        }
+    )

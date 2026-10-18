@@ -366,6 +366,20 @@
     <string name="crossfade_gapless_desc">Skip crossfade for albums designed to play without gaps</string>
     <string name="crossfade_on_skip">Crossfade on manual skip</string>
     <string name="crossfade_on_skip_desc">Blend into the next or previous song over up to 3 seconds when you skip</string>
+    <string name="mix_settings">Mix</string>
+    <string name="mix_transition_style">Transition style</string>
+    <string name="mix_transition_auto">Auto</string>
+    <string name="mix_transition_auto_desc">Currently the same as Fade</string>
+    <string name="mix_transition_fade">Fade</string>
+    <string name="mix_transition_fade_desc">Smooth volume crossfade</string>
+    <string name="mix_transition_filter">Filter</string>
+    <string name="mix_transition_filter_desc">The current song thins out as the next one opens up</string>
+    <string name="mix_transition_echo">Echo</string>
+    <string name="mix_transition_echo_desc">The current song echoes out under the next one</string>
+    <string name="mix_transition_rise">Rise</string>
+    <string name="mix_transition_rise_desc">The current song builds up, then the next one drops in</string>
+    <string name="mix_transition_cut">Cut</string>
+    <string name="mix_transition_cut_desc">No overlap, switches where the song ends</string>
 
     <!-- Romanization Settings -->
     <string name="lyrics_romanize_title">Romanization</string>
