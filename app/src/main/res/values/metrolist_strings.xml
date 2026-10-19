@@ -392,6 +392,10 @@
     <string name="transition_songs">%1$s → %2$s</string>
     <string name="transition_bpm_value">%d BPM</string>
     <string name="transition_bpm_unknown">BPM unknown</string>
+    <string name="transition_key_value">%1$s (%2$s)</string>
+    <string name="transition_keys_match">Keys match (%1$s → %2$s), a long blend sounds good</string>
+    <string name="transition_keys_close">Keys are close (%1$s → %2$s)</string>
+    <string name="transition_keys_clash">Key clash (%1$s → %2$s), keep the overlap short</string>
     <string name="transition_analysing">Analysing…</string>
     <string name="transition_not_loaded">Not loaded yet</string>
     <string name="transition_note">Plays whenever these two songs play one after the other, with Crossfade or Smart mix on</string>

@@ -80,6 +80,7 @@ import com.metrolist.music.constants.CrossfadeEnabledKey
 import com.metrolist.music.constants.MixMode
 import com.metrolist.music.models.MediaMetadata
 import com.metrolist.music.playback.mix.CustomTransition
+import com.metrolist.music.playback.mix.Harmony
 import com.metrolist.music.playback.mix.MixAnalysis
 import com.metrolist.music.playback.mix.MixAnalysisRepository
 import com.metrolist.music.playback.mix.MixRegion
@@ -410,6 +411,7 @@ private fun TransitionEditor(
                 LaneHeader(to, tempoText(headOutcome), MaterialTheme.colorScheme.tertiary)
 
                 Column(Modifier.padding(horizontal = 16.dp)) {
+                    HarmonyNote(tail, head)
                     Text(
                         text = stringResource(R.string.transition_editor_hint),
                         style = MaterialTheme.typography.bodySmall,
@@ -681,18 +683,59 @@ private fun waveformStatus(outcome: MixAnalysisRepository.Outcome?): String? =
         else -> stringResource(R.string.transition_waveform_not_cached)
     }
 
+/** Tempo, and the key when it is clear, e.g. "124 BPM · Am (8A)". */
 @Composable
 private fun tempoText(outcome: MixAnalysisRepository.Outcome?): String =
     when (outcome) {
         null -> stringResource(R.string.transition_analysing)
         MixAnalysisRepository.Outcome.Pending -> stringResource(R.string.transition_not_loaded)
         MixAnalysisRepository.Outcome.Unavailable -> stringResource(R.string.transition_bpm_unknown)
-        is MixAnalysisRepository.Outcome.Ready ->
-            outcome.analysis
-                .takeIf { it.hasConfidentTempo }
-                ?.let { stringResource(R.string.transition_bpm_value, it.bpm.roundToInt()) }
-                ?: stringResource(R.string.transition_bpm_unknown)
+        is MixAnalysisRepository.Outcome.Ready -> {
+            val tempo =
+                outcome.analysis
+                    .takeIf { it.hasConfidentTempo }
+                    ?.let { stringResource(R.string.transition_bpm_value, it.bpm.roundToInt()) }
+                    ?: stringResource(R.string.transition_bpm_unknown)
+            outcome.analysis.musicalKey
+                ?.takeIf { it.isConfident }
+                ?.let { key ->
+                    val keyText = stringResource(R.string.transition_key_value, key.name, key.camelotCode)
+                    stringResource(R.string.transition_chip_pair, tempo, keyText)
+                } ?: tempo
+        }
     }
+
+/** How the two songs' keys go together, when both are clear. */
+@Composable
+private fun HarmonyNote(
+    tail: MixAnalysis?,
+    head: MixAnalysis?,
+) {
+    val harmony = if (tail != null && head != null) SmartMixPlanner.harmony(tail, head) else null
+    val fromKey = tail?.musicalKey
+    val toKey = head?.musicalKey
+    if (harmony == null || fromKey == null || toKey == null) return
+    Text(
+        text =
+            stringResource(
+                when (harmony) {
+                    Harmony.COMPATIBLE -> R.string.transition_keys_match
+                    Harmony.NEUTRAL -> R.string.transition_keys_close
+                    Harmony.CLASH -> R.string.transition_keys_clash
+                },
+                fromKey.camelotCode,
+                toKey.camelotCode,
+            ),
+        style = MaterialTheme.typography.bodyMedium,
+        color =
+            when (harmony) {
+                Harmony.COMPATIBLE -> MaterialTheme.colorScheme.primary
+                Harmony.NEUTRAL -> MaterialTheme.colorScheme.onSurfaceVariant
+                Harmony.CLASH -> MaterialTheme.colorScheme.error
+            },
+        modifier = Modifier.padding(bottom = 8.dp),
+    )
+}
 
 private const val ANALYSIS_RETRY_MS = 5_000L
 private const val PLAYHEAD_INTERVAL_MS = 50L
