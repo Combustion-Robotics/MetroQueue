@@ -5513,13 +5513,12 @@ class MusicService :
         mixAnalysisRepository
             ?: MixAnalysisRepository(this, listOf(downloadCache, playerCache)).also { mixAnalysisRepository = it }
 
-    /** Analysis for the transition editor, from the analysis cache or cached audio; null when there is none. */
+    /** Analysis for the transition editor, from the analysis cache or cached audio (Pending while not cached). */
     suspend fun mixAnalysis(
         mediaId: String,
         region: MixRegion,
         durationHintMs: Long,
-    ): MixAnalysis? =
-        (mixAnalysisRepository().analysis(mediaId, region, durationHintMs) as? MixAnalysisRepository.Outcome.Ready)?.analysis
+    ): MixAnalysisRepository.Outcome = mixAnalysisRepository().analysis(mediaId, region, durationHintMs)
 
     /**
      * Seeks to shortly before the transition out of the current song, to hear it. Returns false

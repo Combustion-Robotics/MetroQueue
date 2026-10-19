@@ -48,12 +48,13 @@ import com.metrolist.music.constants.CrossfadeDurationKey
 import com.metrolist.music.constants.CrossfadeEnabledKey
 import com.metrolist.music.models.MediaMetadata
 import com.metrolist.music.playback.mix.CustomTransition
-import com.metrolist.music.playback.mix.MixAnalysis
+import com.metrolist.music.playback.mix.MixAnalysisRepository
 import com.metrolist.music.playback.mix.MixRegion
 import com.metrolist.music.playback.mix.SmartMixPlanner
 import com.metrolist.music.playback.mix.TransitionStyle
 import com.metrolist.music.utils.makeTimeString
 import com.metrolist.music.utils.rememberPreference
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 import kotlin.math.roundToLong
@@ -84,12 +85,20 @@ fun TransitionEditor(
     var startMs by remember(from.id, to.id) { mutableStateOf(saved?.incomingStartMs) }
     var tempoMatch by remember(from.id, to.id) { mutableStateOf(saved?.tempoMatch ?: true) }
 
-    var tail by remember(from.id, to.id) { mutableStateOf<MixAnalysis?>(null) }
-    var head by remember(from.id, to.id) { mutableStateOf<MixAnalysis?>(null) }
+    // null until the first answer. Audio that isn't cached yet (typically the next song, until
+    // the player buffers it shortly before the transition) is asked for again while this is open.
+    var tailOutcome by remember(from.id, to.id) { mutableStateOf<MixAnalysisRepository.Outcome?>(null) }
+    var headOutcome by remember(from.id, to.id) { mutableStateOf<MixAnalysisRepository.Outcome?>(null) }
     LaunchedEffect(from.id, to.id) {
-        tail = service.mixAnalysis(from.id, MixRegion.TAIL, from.durationMs ?: 0L)
-        head = service.mixAnalysis(to.id, MixRegion.HEAD, to.durationMs ?: 0L)
+        while (true) {
+            if (tailOutcome.isPending) tailOutcome = service.mixAnalysis(from.id, MixRegion.TAIL, from.durationMs ?: 0L)
+            if (headOutcome.isPending) headOutcome = service.mixAnalysis(to.id, MixRegion.HEAD, to.durationMs ?: 0L)
+            if (!tailOutcome.isPending && !headOutcome.isPending) break
+            delay(ANALYSIS_RETRY_MS)
+        }
     }
+    val tail = (tailOutcome as? MixAnalysisRepository.Outcome.Ready)?.analysis
+    val head = (headOutcome as? MixAnalysisRepository.Outcome.Ready)?.analysis
 
     val fromDurationMs = from.durationMs ?: tail?.trackDurationMs
     val toDurationMs = to.durationMs ?: head?.trackDurationMs
@@ -135,13 +144,11 @@ fun TransitionEditor(
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
         )
-        if (tail != null || head != null) {
-            Text(
-                text = stringResource(R.string.transition_bpm, tail.bpmText(), head.bpmText()),
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
+        Text(
+            text = stringResource(R.string.transition_tempo, tempoText(tailOutcome), tempoText(headOutcome)),
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
         Spacer(Modifier.height(8.dp))
         Text(
             text = stringResource(if (mixEnabled) R.string.transition_note else R.string.transition_mix_off_note),
@@ -302,7 +309,23 @@ private fun PositionSetting(
 private val MediaMetadata.durationMs: Long?
     get() = duration.takeIf { it > 0 }?.times(1000L)
 
-private fun MixAnalysis?.bpmText(): String = this?.takeIf { it.hasConfidentTempo }?.bpm?.roundToInt()?.toString() ?: "–"
+private const val ANALYSIS_RETRY_MS = 5_000L
+
+private val MixAnalysisRepository.Outcome?.isPending: Boolean
+    get() = this == null || this == MixAnalysisRepository.Outcome.Pending
+
+@Composable
+private fun tempoText(outcome: MixAnalysisRepository.Outcome?): String =
+    when (outcome) {
+        null -> stringResource(R.string.transition_analysing)
+        MixAnalysisRepository.Outcome.Pending -> stringResource(R.string.transition_not_loaded)
+        MixAnalysisRepository.Outcome.Unavailable -> stringResource(R.string.transition_bpm_unknown)
+        is MixAnalysisRepository.Outcome.Ready ->
+            outcome.analysis
+                .takeIf { it.hasConfidentTempo }
+                ?.let { stringResource(R.string.transition_bpm_value, it.bpm.roundToInt()) }
+                ?: stringResource(R.string.transition_bpm_unknown)
+    }
 
 private val TransitionStyle.labelRes: Int
     get() =

@@ -390,7 +390,11 @@
     <string name="transition_to_next_song_desc">Set how this song blends into the one after it</string>
     <string name="transition_title">Transition</string>
     <string name="transition_songs">%1$s → %2$s</string>
-    <string name="transition_bpm">%1$s → %2$s BPM</string>
+    <string name="transition_tempo">%1$s → %2$s</string>
+    <string name="transition_bpm_value">%d BPM</string>
+    <string name="transition_bpm_unknown">BPM unknown</string>
+    <string name="transition_analysing">Analysing…</string>
+    <string name="transition_not_loaded">Not loaded yet</string>
     <string name="transition_note">Plays whenever these two songs play one after the other, with Crossfade or Smart mix on</string>
     <string name="transition_mix_off_note">Mix is off in settings. This transition plays once Crossfade or Smart mix is on</string>
     <string name="transition_length">Length</string>
