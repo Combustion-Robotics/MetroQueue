@@ -1,0 +1,19 @@
+MetroQueue 1.1.0: Mix
+
+Mix
+- Crossfade between songs, with the next song pre-buffered and transitions starting where a song actually ends
+- Transition styles: Fade, Filter, Echo, Rise and Cut, or Auto
+- Smart mix: analyses tempo and structure to pick the transition point and style for each pair of songs
+- Optional crossfade when skipping manually
+- Custom transitions per song pair, saved and included in backups
+- Full-screen transition editor: waveforms of both songs, drag to set the overlap and fades, snap to beats, pinch to zoom, style chips, match tempo, preview
+- Replay a finished transition from the editor to fine-tune it
+- Transition button between the current and next song in the queue
+- "Transitions" in the Now Playing menu, next to Equalizer, with quick Mix settings
+
+Voice
+- Play songs with Gemini / Google Assistant voice requests
+
+Fixes
+- The next song's tempo now shows in the transition editor
+- Clearing the app from recents during a transition no longer leaves the volume half-faded
