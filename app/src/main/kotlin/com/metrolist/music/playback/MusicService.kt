@@ -5521,17 +5521,33 @@ class MusicService :
     ): MixAnalysisRepository.Outcome = mixAnalysisRepository().analysis(mediaId, region, durationHintMs, withWaveform = true)
 
     /**
-     * Seeks to shortly before the transition out of the current song, to hear it. Returns false
-     * unless [fromId] is playing with [toId] next and a transition between them is planned.
+     * Seeks to shortly before the transition from [fromId] into [toId], to hear it. Ahead of it
+     * ([fromId] playing with [toId] next) this uses the planned transition; once it has started or
+     * is over ([toId] playing right after [fromId]) any fade is cancelled and playback goes back
+     * into [fromId], before [replayStartMs] (where the transition starts in [fromId]). Returns
+     * false when neither applies or no transition would play.
      */
     fun previewTransition(
         fromId: String,
         toId: String,
+        replayStartMs: Long?,
     ): Boolean {
-        if (!::player.isInitialized || isCrossfading || !player.isPlaying) return false
-        if (player.currentMediaItem?.mediaId != fromId || smartMixTarget()?.mediaId != toId) return false
-        val plan = planAutoTransition() ?: return false
-        player.seekTo((plan.startPositionMs - TRANSITION_PREVIEW_LEAD_MS).coerceAtLeast(0L))
+        if (!::player.isInitialized || !crossfadeEnabled || taskCleared) return false
+        if (castConnectionHandler?.isCasting?.value == true || player.playbackState == Player.STATE_IDLE) return false
+        val currentId = player.currentMediaItem?.mediaId
+        if (currentId == fromId) {
+            if (isCrossfading || !player.isPlaying || smartMixTarget()?.mediaId != toId) return false
+            val plan = planAutoTransition() ?: return false
+            player.seekTo((plan.startPositionMs - TRANSITION_PREVIEW_LEAD_MS).coerceAtLeast(0L))
+            return true
+        }
+        val previousIndex = player.previousMediaItemIndex
+        if (currentId != toId || replayStartMs == null || previousIndex == C.INDEX_UNSET) return false
+        if (player.getMediaItemAt(previousIndex).mediaId != fromId) return false
+        resetCrossfade()
+        endTempoNudge(gradual = false)
+        player.seekTo(previousIndex, (replayStartMs - TRANSITION_PREVIEW_LEAD_MS).coerceAtLeast(0L))
+        player.play()
         return true
     }
 

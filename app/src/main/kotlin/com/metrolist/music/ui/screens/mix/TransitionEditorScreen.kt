@@ -25,6 +25,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
@@ -69,6 +70,8 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.window.DialogWindowProvider
 import androidx.core.view.WindowCompat
+import androidx.media3.common.C
+import androidx.media3.common.Player
 import coil3.compose.AsyncImage
 import com.metrolist.music.LocalPlayerConnection
 import com.metrolist.music.R
@@ -181,14 +184,8 @@ private fun TransitionEditor(
     val autoStartMs = head?.let(SmartMixPlanner::introSkipMs) ?: 0L
     val cut = effectiveStyle == TransitionStyle.CUT
 
-    val canPreview =
-        remember {
-            val player = playerConnection.player
-            val nextIndex = player.nextMediaItemIndex
-            player.currentMediaItem?.mediaId == from.id &&
-                nextIndex >= 0 &&
-                player.getMediaItemAt(nextIndex).mediaId == to.id
-        }
+    // Follows playback, so the transition can be replayed once it has happened
+    var previewMode by remember { mutableStateOf(playerConnection.player.previewMode(from.id, to.id)) }
 
     val model =
         if (fromDurationMs != null && autoEndMs != null) {
@@ -208,11 +205,15 @@ private fun TransitionEditor(
             null
         }
 
+    // Replaying goes back to where the transition starts on the timeline
+    val canPreview = mixEnabled && (previewMode == PreviewMode.PREVIEW || (previewMode == PreviewMode.REPLAY && model != null))
+
     // Where the preview (or normal playback) is, on the outgoing song's time axis
     var playheadMs by remember { mutableStateOf<Long?>(null) }
     LaunchedEffect(model?.transitionStartMs, model?.incomingStartMs) {
         while (true) {
             val player = playerConnection.player
+            previewMode = player.previewMode(from.id, to.id)
             playheadMs =
                 when (player.currentMediaItem?.mediaId) {
                     from.id -> player.currentPosition
@@ -309,14 +310,24 @@ private fun TransitionEditor(
                                     saved = transition
                                     style = transition.style
                                     durationMs = transition.durationMs
-                                    if (!service.previewTransition(from.id, to.id)) {
+                                    if (!service.previewTransition(from.id, to.id, model?.transitionStartMs)) {
                                         Toast.makeText(context, R.string.transition_preview_unavailable, Toast.LENGTH_SHORT).show()
                                     }
                                 }
                             },
-                            enabled = canPreview && mixEnabled,
+                            enabled = canPreview,
                         ) {
-                            Text(stringResource(R.string.preview))
+                            if (previewMode == PreviewMode.REPLAY) {
+                                Icon(
+                                    painter = painterResource(R.drawable.replay),
+                                    contentDescription = null,
+                                    modifier = Modifier.size(ButtonDefaults.IconSize),
+                                )
+                                Spacer(Modifier.width(ButtonDefaults.IconSpacing))
+                                Text(stringResource(R.string.transition_replay))
+                            } else {
+                                Text(stringResource(R.string.preview))
+                            }
                         }
                         Spacer(Modifier.width(8.dp))
                         Button(
@@ -507,7 +518,7 @@ private fun TransitionEditor(
 
                     Spacer(Modifier.height(16.dp))
                     Text(
-                        text = stringResource(if (canPreview) R.string.transition_note else R.string.transition_preview_unavailable),
+                        text = stringResource(if (previewMode != null) R.string.transition_note else R.string.transition_preview_unavailable),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -626,6 +637,23 @@ private fun SliderSetting(
         onValueChange = { onChange((it / SLIDER_STEP_MS).roundToLong() * SLIDER_STEP_MS) },
         valueRange = rangeMs.first.toFloat()..rangeMs.last.toFloat(),
     )
+}
+
+private enum class PreviewMode { PREVIEW, REPLAY }
+
+/** [PreviewMode.PREVIEW] while the transition is ahead, [PreviewMode.REPLAY] once [toId] plays right after [fromId]. */
+private fun Player.previewMode(
+    fromId: String,
+    toId: String,
+): PreviewMode? {
+    val currentId = currentMediaItem?.mediaId
+    val nextIndex = nextMediaItemIndex
+    val previousIndex = previousMediaItemIndex
+    return when {
+        currentId == fromId && nextIndex != C.INDEX_UNSET && getMediaItemAt(nextIndex).mediaId == toId -> PreviewMode.PREVIEW
+        currentId == toId && previousIndex != C.INDEX_UNSET && getMediaItemAt(previousIndex).mediaId == fromId -> PreviewMode.REPLAY
+        else -> null
+    }
 }
 
 private fun formatPosition(ms: Long): String {
