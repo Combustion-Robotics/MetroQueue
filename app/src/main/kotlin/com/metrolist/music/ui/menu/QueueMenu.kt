@@ -69,13 +69,13 @@ import com.metrolist.music.models.toMediaMetadata
 import com.metrolist.music.playback.ExoDownloadService
 import com.metrolist.music.playback.queues.YouTubeQueue
 import com.metrolist.music.ui.component.BottomSheetState
-import com.metrolist.music.ui.component.LocalBottomSheetPageState
 import com.metrolist.music.ui.component.ListDialog
 import com.metrolist.music.ui.component.Material3MenuGroup
 import com.metrolist.music.ui.component.Material3MenuItemData
 import com.metrolist.music.ui.component.MediaMetadataListItem
 import com.metrolist.music.ui.component.NewAction
 import com.metrolist.music.ui.component.NewActionGrid
+import com.metrolist.music.ui.screens.mix.LocalTransitionEditorState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.launch
@@ -95,7 +95,7 @@ fun QueueMenu(
     val playerConnection = LocalPlayerConnection.current ?: return
     val coroutineScope = rememberCoroutineScope()
     val syncUtils = LocalSyncUtils.current
-    val bottomSheetPageState = LocalBottomSheetPageState.current
+    val transitionEditorState = LocalTransitionEditorState.current
 
     val downloadUtil = LocalDownloadUtil.current
     val librarySong by database.song(mediaMetadata.id).collectAsStateWithLifecycle(initialValue = null)
@@ -395,9 +395,7 @@ fun QueueMenu(
                             },
                             onClick = {
                                 onDismiss()
-                                bottomSheetPageState.show {
-                                    TransitionEditor(mediaMetadata, nextMediaMetadata, bottomSheetPageState::dismiss)
-                                }
+                                transitionEditorState.show(mediaMetadata, nextMediaMetadata)
                             }
                         )
                     )

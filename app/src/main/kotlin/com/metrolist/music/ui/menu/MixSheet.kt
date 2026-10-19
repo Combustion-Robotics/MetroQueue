@@ -58,7 +58,7 @@ import com.metrolist.music.extensions.metadata
 import com.metrolist.music.extensions.toEnum
 import com.metrolist.music.playback.mix.CustomTransition
 import com.metrolist.music.playback.mix.TransitionStyle
-import com.metrolist.music.ui.component.LocalBottomSheetPageState
+import com.metrolist.music.ui.screens.mix.LocalTransitionEditorState
 import com.metrolist.music.utils.dataStore
 import com.metrolist.music.utils.safeDataStoreEdit
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -114,7 +114,7 @@ fun MixSheet(onOpenSettings: () -> Unit) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     val playerConnection = LocalPlayerConnection.current ?: return
-    val bottomSheetPageState = LocalBottomSheetPageState.current
+    val transitionEditorState = LocalTransitionEditorState.current
     val queueWindows by playerConnection.queueWindows.collectAsStateWithLifecycle()
     val currentWindowIndex by playerConnection.currentWindowIndex.collectAsStateWithLifecycle()
     val settings = rememberMixSettings() ?: return
@@ -189,11 +189,7 @@ fun MixSheet(onOpenSettings: () -> Unit) {
         Spacer(Modifier.height(16.dp))
         FilledTonalButton(
             onClick = {
-                if (current != null && next != null) {
-                    bottomSheetPageState.show {
-                        TransitionEditor(current, next, bottomSheetPageState::dismiss)
-                    }
-                }
+                if (current != null && next != null) transitionEditorState.show(current, next)
             },
             enabled = next != null,
             modifier = Modifier.fillMaxWidth(),

@@ -94,6 +94,7 @@ import com.metrolist.music.ui.component.NewAction
 import com.metrolist.music.ui.component.NewActionGrid
 import com.metrolist.music.ui.component.SongListItem
 import com.metrolist.music.ui.component.TextFieldDialog
+import com.metrolist.music.ui.screens.mix.LocalTransitionEditorState
 import com.metrolist.music.ui.utils.ShowMediaInfo
 import com.metrolist.music.viewmodels.CachePlaylistViewModel
 import kotlinx.coroutines.Dispatchers
@@ -492,6 +493,7 @@ fun SongMenu(
     Spacer(modifier = Modifier.height(12.dp))
 
     val bottomSheetPageState = LocalBottomSheetPageState.current
+    val transitionEditorState = LocalTransitionEditorState.current
     val configuration = LocalConfiguration.current
     val isPortrait = configuration.orientation == Configuration.ORIENTATION_PORTRAIT
 
@@ -1135,9 +1137,7 @@ fun SongMenu(
                                     },
                                     onClick = {
                                         onDismiss()
-                                        bottomSheetPageState.show {
-                                            TransitionEditor(song.toMediaMetadata(), nextSong, bottomSheetPageState::dismiss)
-                                        }
+                                        transitionEditorState.show(song.toMediaMetadata(), nextSong)
                                     },
                                 ),
                             )

@@ -80,6 +80,7 @@ import com.metrolist.music.ui.component.Material3MenuGroup
 import com.metrolist.music.ui.component.Material3MenuItemData
 import com.metrolist.music.ui.component.NewAction
 import com.metrolist.music.ui.component.NewActionGrid
+import com.metrolist.music.ui.screens.mix.LocalTransitionEditorState
 import com.metrolist.music.ui.utils.ShowMediaInfo
 import com.metrolist.music.ui.utils.resize
 import com.metrolist.music.utils.ArtistNameAliases
@@ -279,6 +280,7 @@ fun YouTubeSongMenu(
     Spacer(modifier = Modifier.height(12.dp))
 
     val bottomSheetPageState = LocalBottomSheetPageState.current
+    val transitionEditorState = LocalTransitionEditorState.current
     val configuration = LocalConfiguration.current
     val isPortrait = configuration.orientation == Configuration.ORIENTATION_PORTRAIT
 
@@ -708,9 +710,7 @@ fun YouTubeSongMenu(
                                 },
                                 onClick = {
                                     onDismiss()
-                                    bottomSheetPageState.show {
-                                        TransitionEditor(song.toMediaMetadata(), nextSong, bottomSheetPageState::dismiss)
-                                    }
+                                    transitionEditorState.show(song.toMediaMetadata(), nextSong)
                                 },
                             ),
                         )

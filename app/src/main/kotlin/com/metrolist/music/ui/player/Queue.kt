@@ -124,8 +124,8 @@ import com.metrolist.music.ui.menu.PlayerMenu
 import com.metrolist.music.ui.menu.QueueMenu
 import com.metrolist.music.ui.menu.SelectionMediaMetadataMenu
 import com.metrolist.music.ui.menu.TransitionChip
-import com.metrolist.music.ui.menu.TransitionEditor
 import com.metrolist.music.ui.menu.rememberMixSettings
+import com.metrolist.music.ui.screens.mix.LocalTransitionEditorState
 import com.metrolist.music.ui.utils.ShowMediaInfo
 import com.metrolist.music.utils.dataStore
 import com.metrolist.music.utils.makeTimeString
@@ -171,6 +171,7 @@ fun Queue(
     val menuState = LocalMenuState.current
     val sleepTimerDefaultSetTemplate = stringResource(R.string.sleep_timer_default_set)
     val bottomSheetPageState = LocalBottomSheetPageState.current
+    val transitionEditorState = LocalTransitionEditorState.current
 
     // Listen Together state (reactive)
     val listenTogetherManager = LocalListenTogetherManager.current
@@ -1017,9 +1018,7 @@ fun Queue(
                                         val from = transitionFrom?.metadata
                                         val to = transitionTo?.metadata
                                         if (from != null && to != null) {
-                                            bottomSheetPageState.show {
-                                                TransitionEditor(from, to, bottomSheetPageState::dismiss)
-                                            }
+                                            transitionEditorState.show(from, to)
                                         }
                                     },
                                 )
