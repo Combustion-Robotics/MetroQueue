@@ -160,6 +160,10 @@ val CrossfadeGaplessKey = booleanPreferencesKey("crossfadeGapless")
 val CrossfadeOnSkipKey = booleanPreferencesKey("crossfadeOnSkip")
 val MixTransitionStyleKey = stringPreferencesKey("mixTransitionStyle")
 
+const val DEFAULT_CROSSFADE_DURATION = 8f
+const val DEFAULT_CROSSFADE_GAPLESS = true
+const val DEFAULT_CROSSFADE_ON_SKIP = true
+
 enum class MixTransitionStyle {
     AUTO,
     FADE,
@@ -169,6 +173,8 @@ enum class MixTransitionStyle {
     CUT,
 }
 
+val DEFAULT_MIX_TRANSITION_STYLE = MixTransitionStyle.AUTO
+
 val MixModeKey = stringPreferencesKey("mixMode")
 
 enum class MixMode {
@@ -177,16 +183,21 @@ enum class MixMode {
     SMART,
 }
 
+val DEFAULT_MIX_MODE = MixMode.SMART
+
 /**
  * [CrossfadeEnabledKey] stays the on/off switch, so settings from before the mix modes and the
  * code paths that read it keep working; [MixModeKey] tells Crossfade and Smart mix apart.
+ * A crossfade switch from before the mix modes keeps plain Crossfade; never set means the default.
  */
-fun Preferences.mixMode(): MixMode =
-    when {
-        this[CrossfadeEnabledKey] != true -> MixMode.OFF
+fun Preferences.mixMode(): MixMode {
+    val enabled = this[CrossfadeEnabledKey] ?: return DEFAULT_MIX_MODE
+    return when {
+        !enabled -> MixMode.OFF
         this[MixModeKey] == MixMode.SMART.name -> MixMode.SMART
         else -> MixMode.CROSSFADE
     }
+}
 
 val MaxImageCacheSizeKey = intPreferencesKey("maxImageCacheSize")
 val MaxSongCacheSizeKey = intPreferencesKey("maxSongCacheSize")

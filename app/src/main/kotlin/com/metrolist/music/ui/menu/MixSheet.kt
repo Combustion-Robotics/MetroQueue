@@ -49,6 +49,9 @@ import com.metrolist.music.R
 import com.metrolist.music.constants.CrossfadeDurationKey
 import com.metrolist.music.constants.CrossfadeEnabledKey
 import com.metrolist.music.constants.CrossfadeGaplessKey
+import com.metrolist.music.constants.DEFAULT_CROSSFADE_DURATION
+import com.metrolist.music.constants.DEFAULT_CROSSFADE_GAPLESS
+import com.metrolist.music.constants.DEFAULT_MIX_TRANSITION_STYLE
 import com.metrolist.music.constants.MixMode
 import com.metrolist.music.constants.MixModeKey
 import com.metrolist.music.constants.MixTransitionStyle
@@ -88,9 +91,9 @@ fun rememberMixSettings(): MixSettings? {
                 .map {
                     MixSettings(
                         mode = it.mixMode(),
-                        style = it[MixTransitionStyleKey].toEnum(MixTransitionStyle.AUTO),
-                        durationSeconds = it[CrossfadeDurationKey] ?: 5f,
-                        skipGaplessAlbums = it[CrossfadeGaplessKey] ?: true,
+                        style = it[MixTransitionStyleKey].toEnum(DEFAULT_MIX_TRANSITION_STYLE),
+                        durationSeconds = it[CrossfadeDurationKey] ?: DEFAULT_CROSSFADE_DURATION,
+                        skipGaplessAlbums = it[CrossfadeGaplessKey] ?: DEFAULT_CROSSFADE_GAPLESS,
                     )
                 }.distinctUntilChanged()
         }

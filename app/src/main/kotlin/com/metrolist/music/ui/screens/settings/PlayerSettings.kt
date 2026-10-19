@@ -26,8 +26,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
@@ -43,9 +45,13 @@ import com.metrolist.music.constants.AudioQuality
 import com.metrolist.music.constants.AudioQualityKey
 import com.metrolist.music.constants.AutoDownloadOnLikeKey
 import com.metrolist.music.constants.CrossfadeDurationKey
-import com.metrolist.music.constants.CrossfadeEnabledKey
 import com.metrolist.music.constants.CrossfadeGaplessKey
 import com.metrolist.music.constants.CrossfadeOnSkipKey
+import com.metrolist.music.constants.DEFAULT_CROSSFADE_DURATION
+import com.metrolist.music.constants.DEFAULT_CROSSFADE_GAPLESS
+import com.metrolist.music.constants.DEFAULT_CROSSFADE_ON_SKIP
+import com.metrolist.music.constants.DEFAULT_MIX_MODE
+import com.metrolist.music.constants.DEFAULT_MIX_TRANSITION_STYLE
 import com.metrolist.music.constants.AutoLoadMoreKey
 import com.metrolist.music.constants.AutoRadioQueueKey
 import com.metrolist.music.constants.AutoSkipNextOnErrorKey
@@ -57,7 +63,6 @@ import com.metrolist.music.constants.KeepScreenOn
 import com.metrolist.music.constants.LoudnessLevel
 import com.metrolist.music.constants.LoudnessLevelKey
 import com.metrolist.music.constants.MixMode
-import com.metrolist.music.constants.MixModeKey
 import com.metrolist.music.constants.MixTransitionStyle
 import com.metrolist.music.constants.MixTransitionStyleKey
 import com.metrolist.music.constants.NewRadioAfterAddedSongsKey
@@ -83,6 +88,8 @@ import com.metrolist.music.ui.component.Material3SettingsItem
 import com.metrolist.music.ui.menu.MIX_DURATION_STEPS
 import com.metrolist.music.ui.menu.MixDurationRange
 import com.metrolist.music.ui.menu.mixModeLabel
+import com.metrolist.music.ui.menu.rememberMixSettings
+import com.metrolist.music.ui.menu.setMixMode
 import com.metrolist.music.ui.menu.transitionStyleLabel
 import com.metrolist.music.ui.utils.backToMain
 import com.metrolist.music.utils.rememberEnumPreference
@@ -100,6 +107,7 @@ import com.metrolist.music.ui.component.encodeDayTimes
 import com.metrolist.music.constants.SleepTimerFadeOutKey
 import com.metrolist.music.constants.SleepTimerStopAfterCurrentSongKey
 import com.metrolist.music.ui.utils.getLoudnessLevelLabel
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -110,36 +118,26 @@ fun PlayerSettings(
         AudioQualityKey,
         defaultValue = AudioQuality.AUTO
     )
-    val (crossfadeEnabled, onCrossfadeEnabledChange) = rememberPreference(
-        CrossfadeEnabledKey,
-        defaultValue = false
-    )
+    val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
+    val mixMode = rememberMixSettings()?.mode ?: DEFAULT_MIX_MODE
+    val crossfadeEnabled = mixMode != MixMode.OFF
     val (crossfadeDuration, onCrossfadeDurationChange) = rememberPreference(
         CrossfadeDurationKey,
-        defaultValue = 5f
+        defaultValue = DEFAULT_CROSSFADE_DURATION
     )
     val (crossfadeGapless, onCrossfadeGaplessChange) = rememberPreference(
         CrossfadeGaplessKey,
-        defaultValue = true
+        defaultValue = DEFAULT_CROSSFADE_GAPLESS
     )
     val (crossfadeOnSkip, onCrossfadeOnSkipChange) = rememberPreference(
         CrossfadeOnSkipKey,
-        defaultValue = false
+        defaultValue = DEFAULT_CROSSFADE_ON_SKIP
     )
     val (mixTransitionStyle, onMixTransitionStyleChange) = rememberEnumPreference(
         MixTransitionStyleKey,
-        defaultValue = MixTransitionStyle.AUTO
+        defaultValue = DEFAULT_MIX_TRANSITION_STYLE
     )
-    val (mixModeSetting, onMixModeSettingChange) = rememberEnumPreference(
-        MixModeKey,
-        defaultValue = MixMode.CROSSFADE
-    )
-    // Same rule as Preferences.mixMode(): the crossfade switch decides on/off
-    val mixMode = when {
-        !crossfadeEnabled -> MixMode.OFF
-        mixModeSetting == MixMode.SMART -> MixMode.SMART
-        else -> MixMode.CROSSFADE
-    }
     val (persistentQueue, onPersistentQueueChange) = rememberPreference(
         PersistentQueueKey,
         defaultValue = true
@@ -296,8 +294,7 @@ fun PlayerSettings(
         EnumDialog(
             onDismiss = { showMixModeDialog = false },
             onSelect = {
-                onMixModeSettingChange(it)
-                onCrossfadeEnabledChange(it != MixMode.OFF)
+                coroutineScope.launch { context.setMixMode(it) }
                 showMixModeDialog = false
             },
             title = stringResource(R.string.mix_mode),

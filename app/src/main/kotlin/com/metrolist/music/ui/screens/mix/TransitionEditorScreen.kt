@@ -142,7 +142,7 @@ private fun TransitionEditor(
     val coroutineScope = rememberCoroutineScope()
     // Defaults to on so the "Mix is off" note doesn't flash while the setting loads
     val mixEnabled by rememberPreference(CrossfadeEnabledKey, defaultValue = true)
-    val crossfadeSeconds by rememberPreference(CrossfadeDurationKey, defaultValue = 5f)
+    val crossfadeSeconds by rememberPreference(CrossfadeDurationKey, defaultValue = com.metrolist.music.constants.DEFAULT_CROSSFADE_DURATION)
 
     var saved by remember { mutableStateOf(repository.get(from.id, to.id)) }
     var style by remember { mutableStateOf(saved?.style) }

@@ -115,9 +115,12 @@ import com.metrolist.music.constants.AutoLoadMoreKey
 import com.metrolist.music.constants.AutoSkipNextOnErrorKey
 import com.metrolist.music.constants.AutoplayKey
 import com.metrolist.music.constants.CrossfadeDurationKey
-import com.metrolist.music.constants.CrossfadeEnabledKey
 import com.metrolist.music.constants.CrossfadeGaplessKey
 import com.metrolist.music.constants.CrossfadeOnSkipKey
+import com.metrolist.music.constants.DEFAULT_CROSSFADE_DURATION
+import com.metrolist.music.constants.DEFAULT_CROSSFADE_GAPLESS
+import com.metrolist.music.constants.DEFAULT_CROSSFADE_ON_SKIP
+import com.metrolist.music.constants.DEFAULT_MIX_TRANSITION_STYLE
 import com.metrolist.music.constants.DisableLoadMoreWhenRepeatAllKey
 import com.metrolist.music.constants.DiscordActivityNameKey
 import com.metrolist.music.constants.DiscordActivityTypeKey
@@ -332,10 +335,10 @@ class MusicService :
     private var isPausedByVolumeMute = false
 
     private var crossfadeEnabled = false
-    private var crossfadeDuration = 5000f
-    private var crossfadeGapless = true
-    private var crossfadeOnSkip = false
-    private var mixTransitionStyle = MixTransitionStyle.AUTO
+    private var crossfadeDuration = DEFAULT_CROSSFADE_DURATION * 1000f
+    private var crossfadeGapless = DEFAULT_CROSSFADE_GAPLESS
+    private var crossfadeOnSkip = DEFAULT_CROSSFADE_ON_SKIP
+    private var mixTransitionStyle = DEFAULT_MIX_TRANSITION_STYLE
     private var smartMixEnabled = false
     private var crossfadeMessage: PlayerMessage? = null
 
@@ -1034,7 +1037,7 @@ class MusicService :
 
         combine(
             dataStore.data.map { it[AudioOffload] ?: false },
-            dataStore.data.map { it[CrossfadeEnabledKey] ?: false },
+            dataStore.data.map { it.mixMode() != MixMode.OFF },
         ) { offloadPref, crossfadeEnabled ->
             // Force disable offload if crossfade is enabled to prevent volume ramp issues
             if (crossfadeEnabled) false else offloadPref
@@ -1243,8 +1246,8 @@ class MusicService :
             dataStore.data.map { prefs ->
                 Triple(
                     prefs.mixMode(),
-                    prefs[CrossfadeDurationKey] ?: 5f,
-                    prefs[CrossfadeGaplessKey] ?: true,
+                    prefs[CrossfadeDurationKey] ?: DEFAULT_CROSSFADE_DURATION,
+                    prefs[CrossfadeGaplessKey] ?: DEFAULT_CROSSFADE_GAPLESS,
                 )
             },
             listenTogetherManager.roomState,
@@ -1260,12 +1263,12 @@ class MusicService :
             }
 
         dataStore.data
-            .map { it[CrossfadeOnSkipKey] ?: false }
+            .map { it[CrossfadeOnSkipKey] ?: DEFAULT_CROSSFADE_ON_SKIP }
             .distinctUntilChanged()
             .collect(scope) { crossfadeOnSkip = it }
 
         dataStore.data
-            .map { it[MixTransitionStyleKey].toEnum(MixTransitionStyle.AUTO) }
+            .map { it[MixTransitionStyleKey].toEnum(DEFAULT_MIX_TRANSITION_STYLE) }
             .distinctUntilChanged()
             .collect(scope) {
                 mixTransitionStyle = it
@@ -1504,14 +1507,14 @@ class MusicService :
 
         if (prefs != null) {
             val offload = prefs[AudioOffload] ?: false
-            val crossfade = prefs[CrossfadeEnabledKey] ?: false
+            val crossfade = prefs.mixMode() != MixMode.OFF
             player.setOffloadEnabled(if (crossfade) false else offload)
             player.skipSilenceEnabled = prefs[SkipSilenceKey] ?: false
         } else {
             player.apply {
                 runBlocking {
                     val offload = dataStore.get(AudioOffload, false)
-                    val crossfade = dataStore.get(CrossfadeEnabledKey, false)
+                    val crossfade = dataStore.data.first().mixMode() != MixMode.OFF
                     setOffloadEnabled(if (crossfade) false else offload)
                     skipSilenceEnabled = dataStore.get(SkipSilenceKey, false)
                 }
