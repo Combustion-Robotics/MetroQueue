@@ -7,6 +7,7 @@ package com.metrolist.music.playback.mix
 
 import com.metrolist.music.recognition.computeRfft
 import kotlinx.serialization.Serializable
+import java.util.Base64
 import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.ceil
@@ -16,7 +17,9 @@ import kotlin.math.floor
 import kotlin.math.ln
 import kotlin.math.log10
 import kotlin.math.log2
+import kotlin.math.roundToInt
 import kotlin.math.roundToLong
+import kotlin.math.sqrt
 
 /** Which part of a song an analysis covers: the start, or the end. */
 enum class MixRegion { HEAD, TAIL }
@@ -36,6 +39,8 @@ enum class MixRegion { HEAD, TAIL }
  * @param loudnessDb median level of the audible part, dBFS RMS.
  * @param bodyDb "full" level (upper quartile of the audible part), dBFS RMS.
  * @param peakDb sample peak, dBFS.
+ * @param waveform level envelope of the decoded audio, which may reach further into the song
+ *   than the analysed region; null in analyses stored before it existed.
  */
 @Serializable
 data class MixAnalysis(
@@ -53,6 +58,7 @@ data class MixAnalysis(
     val loudnessDb: Float,
     val bodyDb: Float,
     val peakDb: Float,
+    val waveform: MixWaveform? = null,
 ) {
     val hasConfidentTempo: Boolean
         get() = bpm > 0f && bpmConfidence >= CONFIDENT_TEMPO
@@ -62,6 +68,34 @@ data class MixAnalysis(
 
     companion object {
         const val CONFIDENT_TEMPO = 0.5f
+    }
+}
+
+/**
+ * Peak level per [stepMs] from [startMs] on, for drawing: one byte per step (the square root of
+ * the linear peak, so quiet parts stay visible), Base64 encoded to keep the store small.
+ */
+@Serializable
+data class MixWaveform(
+    val startMs: Long,
+    val stepMs: Int,
+    val data: String,
+) {
+    /** Levels in 0..1. */
+    fun levels(): FloatArray {
+        val bytes = runCatching { Base64.getDecoder().decode(data) }.getOrDefault(ByteArray(0))
+        return FloatArray(bytes.size) { (bytes[it].toInt() and 0xFF) / 255f }
+    }
+
+    companion object {
+        fun encode(
+            startMs: Long,
+            stepMs: Int,
+            levels: FloatArray,
+        ): MixWaveform {
+            val bytes = ByteArray(levels.size) { (levels[it].coerceIn(0f, 1f) * 255).roundToInt().toByte() }
+            return MixWaveform(startMs, stepMs, Base64.getEncoder().encodeToString(bytes))
+        }
     }
 }
 
@@ -154,6 +188,24 @@ object MixAnalyzer {
             bodyDb = bodyDb.toFloat(),
             peakDb = (20 * log10(peak.toDouble() + 1e-9)).toFloat(),
         )
+    }
+
+    /** Peak envelope of [samples] (mono, -1..1) that start at [startMs] of a track. */
+    fun waveform(
+        samples: FloatArray,
+        sampleRate: Int,
+        startMs: Long,
+    ): MixWaveform {
+        val frameLength = (sampleRate * ENERGY_FRAME_MS / 1000).coerceAtLeast(1)
+        val levels =
+            FloatArray((samples.size + frameLength - 1) / frameLength) { frame ->
+                var peak = 0f
+                for (i in frame * frameLength until minOf((frame + 1) * frameLength, samples.size)) {
+                    peak = maxOf(peak, abs(samples[i]))
+                }
+                sqrt(peak.coerceAtMost(1f))
+            }
+        return MixWaveform.encode(startMs, ENERGY_FRAME_MS, levels)
     }
 
     private class Tempo(

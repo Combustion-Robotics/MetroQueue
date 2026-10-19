@@ -13,6 +13,7 @@ import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.exp
 import kotlin.math.sin
+import kotlin.math.sqrt
 import kotlin.random.Random
 
 class MixAnalyzerTest {
@@ -95,6 +96,20 @@ class MixAnalyzerTest {
     @Test
     fun `silence is not analysed`() {
         assertEquals(null, MixAnalyzer.analyze(FloatArray(SAMPLE_RATE * 10), SAMPLE_RATE, 0L, 10_000L))
+    }
+
+    @Test
+    fun `waveform holds the peak of each step`() {
+        // 1 s at half level, then 1 s of silence
+        val samples = signal(2_000) { ms -> if (ms < 1_000) 0.5 * sin(2 * PI * 440 * ms / 1000) else 0.0 }
+
+        val waveform = MixAnalyzer.waveform(samples, SAMPLE_RATE, 5_000L)
+        val levels = waveform.levels()
+
+        assertEquals(5_000L, waveform.startMs)
+        assertEquals(2_000 / waveform.stepMs, levels.size)
+        assertEquals(sqrt(0.5f), levels[5], 0.01f)
+        assertEquals(0f, levels.last(), 0.01f)
     }
 
     private fun analyze(

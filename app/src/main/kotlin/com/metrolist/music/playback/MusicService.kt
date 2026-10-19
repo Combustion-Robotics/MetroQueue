@@ -5513,12 +5513,12 @@ class MusicService :
         mixAnalysisRepository
             ?: MixAnalysisRepository(this, listOf(downloadCache, playerCache)).also { mixAnalysisRepository = it }
 
-    /** Analysis for the transition editor, from the analysis cache or cached audio (Pending while not cached). */
+    /** Analysis with its waveform for the transition editor, from the analysis cache or cached audio (Pending while not cached). */
     suspend fun mixAnalysis(
         mediaId: String,
         region: MixRegion,
         durationHintMs: Long,
-    ): MixAnalysisRepository.Outcome = mixAnalysisRepository().analysis(mediaId, region, durationHintMs)
+    ): MixAnalysisRepository.Outcome = mixAnalysisRepository().analysis(mediaId, region, durationHintMs, withWaveform = true)
 
     /**
      * Seeks to shortly before the transition out of the current song, to hear it. Returns false
