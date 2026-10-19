@@ -324,3 +324,13 @@ fun transitionStyleLabel(style: MixTransitionStyle): String =
             MixTransitionStyle.CUT -> R.string.mix_transition_cut
         },
     )
+
+internal val TransitionStyle.labelRes: Int
+    get() =
+        when (this) {
+            TransitionStyle.FADE -> R.string.mix_transition_fade
+            TransitionStyle.FILTER -> R.string.mix_transition_filter
+            TransitionStyle.ECHO -> R.string.mix_transition_echo
+            TransitionStyle.RISE -> R.string.mix_transition_rise
+            TransitionStyle.CUT -> R.string.mix_transition_cut
+        }
