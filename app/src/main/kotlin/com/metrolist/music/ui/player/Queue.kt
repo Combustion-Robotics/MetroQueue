@@ -50,6 +50,8 @@ import androidx.compose.material3.Checkbox
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconButtonDefaults
+import androidx.compose.material3.IconToggleButton
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -1294,10 +1296,17 @@ fun Queue(
                             .only(WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal),
                     ).padding(12.dp),
         ) {
-            IconButton(
+            IconToggleButton(
+                checked = shuffleModeEnabled,
                 enabled = !isListenTogetherGuest,
                 modifier = Modifier.align(Alignment.CenterStart),
-                onClick = {
+                colors =
+                    IconButtonDefaults.iconToggleButtonColors(
+                        contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                        checkedContainerColor = MaterialTheme.colorScheme.primary,
+                        checkedContentColor = MaterialTheme.colorScheme.onPrimary,
+                    ),
+                onCheckedChange = {
                     coroutineScope
                         .launch {
                             lazyListState.animateScrollToItem(
@@ -1309,12 +1318,9 @@ fun Queue(
                         }
                 },
             ) {
-                val baseAlpha = if (shuffleModeEnabled) 1f else 0.5f
-                val finalAlpha = if (!isListenTogetherGuest) baseAlpha else 0.3f
                 Icon(
                     painter = painterResource(R.drawable.shuffle),
-                    contentDescription = null,
-                    modifier = Modifier.alpha(finalAlpha),
+                    contentDescription = stringResource(R.string.shuffle),
                 )
             }
 
