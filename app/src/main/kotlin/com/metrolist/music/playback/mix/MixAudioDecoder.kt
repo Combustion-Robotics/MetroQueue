@@ -181,13 +181,7 @@ class MixAudioDecoder(
             if (contentLength <= 0) continue
             // Seeking into the tail needs the container index, which may sit anywhere: require the
             // whole file. The head needs the bytes up to the region end (estimated, with slack).
-            val requiredBytes =
-                if (fromEnd || durationHintMs <= 0) {
-                    contentLength
-                } else {
-                    (contentLength * (lengthMs + HEAD_SLACK_MS) / durationHintMs + HEADER_SLACK_BYTES)
-                        .coerceAtMost(contentLength)
-                }
+            val requiredBytes = if (fromEnd) contentLength else headBytes(contentLength, lengthMs, durationHintMs)
             if (cache.isCached(mediaId, 0, requiredBytes)) return cache to contentLength
         }
         return null
@@ -346,16 +340,28 @@ class MixAudioDecoder(
         }
     }
 
-    private companion object {
-        const val TAG = "MixAudioDecoder"
-        const val TARGET_SAMPLE_RATE = 11_025
-        const val PCM16_SCALE = 32768f
-        const val CODEC_TIMEOUT_US = 10_000L
-        const val MAX_DECODE_NANOS = 10_000_000_000L
-        const val HEAD_SLACK_MS = 10_000L
-        const val HEADER_SLACK_BYTES = 256 * 1024L
+    companion object {
+        /** Bytes from the start of a file needed to decode its first [lengthMs] (estimated, with slack). */
+        fun headBytes(
+            contentLength: Long,
+            lengthMs: Long,
+            durationMs: Long,
+        ): Long =
+            if (durationMs <= 0) {
+                contentLength
+            } else {
+                (contentLength * (lengthMs + HEAD_SLACK_MS) / durationMs + HEADER_SLACK_BYTES).coerceAtMost(contentLength)
+            }
+
+        private const val TAG = "MixAudioDecoder"
+        private const val TARGET_SAMPLE_RATE = 11_025
+        private const val PCM16_SCALE = 32768f
+        private const val CODEC_TIMEOUT_US = 10_000L
+        private const val MAX_DECODE_NANOS = 10_000_000_000L
+        private const val HEAD_SLACK_MS = 10_000L
+        private const val HEADER_SLACK_BYTES = 256 * 1024L
 
         // A seek may land a little before the tail region
-        const val TAIL_SLACK_MS = 5_000L
+        private const val TAIL_SLACK_MS = 5_000L
     }
 }

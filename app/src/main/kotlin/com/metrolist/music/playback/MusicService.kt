@@ -58,6 +58,7 @@ import androidx.media3.common.Timeline
 import androidx.media3.common.audio.SonicAudioProcessor
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DataSource
+import androidx.media3.datasource.DataSpec
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.HttpDataSource
 import androidx.media3.datasource.ResolvingDataSource
@@ -220,6 +221,7 @@ import com.metrolist.music.playback.mix.CustomTransitionPlanner
 import com.metrolist.music.playback.mix.CustomTransitionRepository
 import com.metrolist.music.playback.mix.MixAnalysis
 import com.metrolist.music.playback.mix.MixAnalysisRepository
+import com.metrolist.music.playback.mix.MixAudioDecoder
 import com.metrolist.music.playback.mix.MixRegion
 import com.metrolist.music.playback.mix.SmartMixPlanner
 import com.metrolist.music.playback.mix.TransitionPlan
@@ -258,7 +260,9 @@ import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.asStateFlow
@@ -372,6 +376,9 @@ class MusicService :
         var headDone = false
         var lastAttemptMs = 0L
         var retryWhenDone = false
+
+        // Fetching the start of the next song ahead of pre-buffering; set once per pair
+        var headPrefetch: Job? = null
 
         // What the transition is planned with; only taken over while there is still time for it
         var appliedTail: MixAnalysis? = null
@@ -5126,6 +5133,7 @@ class MusicService :
         val target = player.getMediaItemAt(targetIndex)
         if (secondaryTargetMediaId != target.mediaId) releaseIncomingPlayer()
         requestSmartMixAnalysis()
+        prefetchNextSongHead(plan)
 
         val position = player.currentPosition
         if (position >= plan.startPositionMs) {
@@ -5141,8 +5149,10 @@ class MusicService :
         if (!prebufferDue && position < prebufferAt - CROSSFADE_POSITION_TOLERANCE_MS) {
             releaseIncomingPlayer()
             stopTailMetering()
-            crossfadeMessage = sendAtPosition(prebufferAt) {
-                if (player.currentMediaItem?.mediaId == currentMediaId) scheduleCrossfade(prebufferDue = true)
+            val prefetchAt = plan.startPositionMs - HEAD_PREFETCH_LEAD_MS
+            val prefetchDue = headPrefetchPending() && position < prefetchAt - CROSSFADE_POSITION_TOLERANCE_MS
+            crossfadeMessage = sendAtPosition(if (prefetchDue) prefetchAt else prebufferAt) {
+                if (player.currentMediaItem?.mediaId == currentMediaId) scheduleCrossfade(prebufferDue = !prefetchDue)
             }
             return
         }
@@ -5324,7 +5334,86 @@ class MusicService :
     private fun cancelSmartMix() {
         smartMixJob?.cancel()
         smartMixJob = null
+        smartMixState?.headPrefetch?.cancel()
         smartMixState = null
+    }
+
+    private fun headPrefetchPending(): Boolean = smartMixState?.let { it.headPrefetch == null && !it.headDone } == true
+
+    /**
+     * Fetches the start of the next song into the player cache about [HEAD_PREFETCH_LEAD_MS]
+     * before the transition, once the current song's end is analysed, so the next song's analysis
+     * is ready long before it is pre-buffered (a tempo-matched blend starts earlier than that).
+     * At most once per pair of songs; skipped under Android's Data Saver on a metered network.
+     */
+    private fun prefetchNextSongHead(plan: TransitionPlan) {
+        val state = smartMixState ?: return
+        if (state.headPrefetch != null || state.headDone || state.tail == null || state.headDurationHintMs <= 0) return
+        if (player.currentPosition < plan.startPositionMs - HEAD_PREFETCH_LEAD_MS - CROSSFADE_POSITION_TOLERANCE_MS) return
+        if (!smartMixMatches(state) || (secondaryPlayer != null && secondaryTargetMediaId == state.toId)) return
+        if (!isNetworkConnected.value) return
+        if (connectivityManager.isActiveNetworkMetered &&
+            connectivityManager.restrictBackgroundStatus == ConnectivityManager.RESTRICT_BACKGROUND_STATUS_ENABLED
+        ) {
+            return
+        }
+        state.headPrefetch =
+            scope.launch {
+                val fetched = withContext(Dispatchers.IO) { fetchSongHead(state.toId, state.headDurationHintMs) }
+                if (fetched && smartMixState === state) requestSmartMixAnalysis(force = true)
+            }
+    }
+
+    // A data source like the players' (same stream resolution, audio quality and caches), outside any player
+    private val headPrefetchDataSourceFactory by lazy {
+        createDataSourceFactory(VolumeNormalizationAudioProcessor()) { null }
+    }
+
+    /**
+     * Reads the bytes the analysis needs from the start of [mediaId] through the players' data
+     * source, which writes them to the player cache. Opened unbounded like the player does, so the
+     * cache learns the file's length; reading stops at the needed bytes. Returns whether it fetched.
+     */
+    private suspend fun fetchSongHead(
+        mediaId: String,
+        durationMs: Long,
+    ): Boolean {
+        fun requiredBytes(cache: Cache): Long? =
+            ContentMetadata
+                .getContentLength(cache.getContentMetadata(mediaId))
+                .takeIf { it > 0 }
+                ?.let { MixAudioDecoder.headBytes(it, MixAnalysisRepository.WAVEFORM_MS, durationMs) }
+
+        val cached = listOf(downloadCache, playerCache).any { cache -> requiredBytes(cache)?.let { cache.isCached(mediaId, 0, it) } == true }
+        if (cached) return false
+        val dataSource = headPrefetchDataSourceFactory.createDataSource()
+        val buffer = ByteArray(HEAD_PREFETCH_BUFFER_BYTES)
+        var position = 0L
+        var target = Long.MAX_VALUE
+        try {
+            // Streams served in bounded chunks end each request early
+            repeat(HEAD_PREFETCH_MAX_REQUESTS) {
+                try {
+                    dataSource.open(DataSpec.Builder().setUri(mediaId).setKey(mediaId).setPosition(position).build())
+                    // Without a known length the analysis can't use the cached start anyway
+                    if (target == Long.MAX_VALUE) target = requiredBytes(playerCache) ?: return false
+                    while (position < target) {
+                        currentCoroutineContext().ensureActive()
+                        val read = dataSource.read(buffer, 0, buffer.size)
+                        if (read == C.RESULT_END_OF_INPUT) break
+                        position += read
+                    }
+                } finally {
+                    dataSource.close()
+                }
+                if (position >= target) return true
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Timber.tag(TAG).w(e, "Fetching the start of %s for smart mix failed", mediaId)
+        }
+        return false
     }
 
     /**
@@ -5561,6 +5650,8 @@ class MusicService :
         scanIntro: Boolean,
         startMs: Long? = null,
     ) {
+        // The incoming player fetches the rest itself
+        smartMixState?.takeIf { it.toId == target.mediaId }?.headPrefetch?.cancel()
         val incoming = createExoPlayer()
         // Before it pre-rolls, so its first buffered audio already has the effect's starting state
         style.fxEffect()?.let { playerTransitionFx[incoming]?.prime(it, TransitionFxAudioProcessor.Role.INCOMING) }
@@ -5920,6 +6011,9 @@ class MusicService :
         private const val SMART_MIX_RETRY_MS = 10_000L
         private const val SMART_MIX_LEAD_MS = 5_000L
         private const val SMART_MIX_PREBUFFERED_LEAD_MS = 1_500L
+        private const val HEAD_PREFETCH_LEAD_MS = 60_000L
+        private const val HEAD_PREFETCH_MAX_REQUESTS = 4
+        private const val HEAD_PREFETCH_BUFFER_BYTES = 32 * 1024
 
         // Longer than SMART_MIX_LEAD_MS, so analysis taken over before the seek is kept
         private const val TRANSITION_PREVIEW_LEAD_MS = 8_000L
