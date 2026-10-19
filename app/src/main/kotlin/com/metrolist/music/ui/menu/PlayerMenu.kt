@@ -91,6 +91,7 @@ import com.metrolist.music.playback.ExoDownloadService
 import com.metrolist.music.db.entities.Song
 import com.metrolist.music.db.entities.SpeedDialItem
 import com.metrolist.music.ui.component.BottomSheetState
+import com.metrolist.music.ui.component.LocalBottomSheetPageState
 import com.metrolist.music.ui.component.ListDialog
 import com.metrolist.music.ui.component.Material3MenuGroup
 import com.metrolist.music.ui.component.Material3MenuItemData
@@ -114,6 +115,7 @@ fun PlayerMenu(
 ) {
     mediaMetadata ?: return
     val navController = LocalNavController.current
+    val bottomSheetPageState = LocalBottomSheetPageState.current
     val context = LocalContext.current
     val database = LocalDatabase.current
     val playerConnection = LocalPlayerConnection.current ?: return
@@ -688,6 +690,31 @@ fun PlayerMenu(
                                     onClick = {
                                         navController.navigate("equalizer")
                                         onDismiss()
+                                    },
+                                ),
+                            )
+                            add(
+                                Material3MenuItemData(
+                                    title = { Text(text = stringResource(R.string.transitions)) },
+                                    description = { Text(text = stringResource(R.string.transitions_desc)) },
+                                    icon = {
+                                        Icon(
+                                            painter = painterResource(R.drawable.linear_scale),
+                                            contentDescription = null,
+                                            modifier = Modifier.size(24.dp),
+                                        )
+                                    },
+                                    onClick = {
+                                        onDismiss()
+                                        bottomSheetPageState.show {
+                                            MixSheet(
+                                                onOpenSettings = {
+                                                    bottomSheetPageState.dismiss()
+                                                    navController.navigate("settings/player")
+                                                    playerBottomSheetState.collapseSoft()
+                                                },
+                                            )
+                                        }
                                     },
                                 ),
                             )

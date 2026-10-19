@@ -6,28 +6,45 @@
 package com.metrolist.music.ui.menu
 
 import android.content.Context
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.metrolist.music.LocalPlayerConnection
 import com.metrolist.music.R
 import com.metrolist.music.constants.CrossfadeDurationKey
 import com.metrolist.music.constants.CrossfadeEnabledKey
@@ -37,13 +54,16 @@ import com.metrolist.music.constants.MixModeKey
 import com.metrolist.music.constants.MixTransitionStyle
 import com.metrolist.music.constants.MixTransitionStyleKey
 import com.metrolist.music.constants.mixMode
+import com.metrolist.music.extensions.metadata
 import com.metrolist.music.extensions.toEnum
 import com.metrolist.music.playback.mix.CustomTransition
 import com.metrolist.music.playback.mix.TransitionStyle
+import com.metrolist.music.ui.component.LocalBottomSheetPageState
 import com.metrolist.music.utils.dataStore
 import com.metrolist.music.utils.safeDataStoreEdit
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
 /** The global Mix settings (Settings > Player > Mix). */
@@ -82,6 +102,128 @@ suspend fun Context.setMixMode(mode: MixMode) {
     safeDataStoreEdit {
         it[MixModeKey] = mode.name
         it[CrossfadeEnabledKey] = mode != MixMode.OFF
+    }
+}
+
+/**
+ * Quick Mix settings from the player menu, plus the transition from the current song into the
+ * next one in the queue.
+ */
+@Composable
+fun MixSheet(onOpenSettings: () -> Unit) {
+    val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
+    val playerConnection = LocalPlayerConnection.current ?: return
+    val bottomSheetPageState = LocalBottomSheetPageState.current
+    val queueWindows by playerConnection.queueWindows.collectAsStateWithLifecycle()
+    val currentWindowIndex by playerConnection.currentWindowIndex.collectAsStateWithLifecycle()
+    val settings = rememberMixSettings() ?: return
+
+    val current = queueWindows.getOrNull(currentWindowIndex)?.mediaItem?.metadata
+    val next = if (current != null) queueWindows.getOrNull(currentWindowIndex + 1)?.mediaItem?.metadata else null
+
+    Column(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 24.dp)
+                .padding(bottom = 16.dp + WindowInsets.systemBars.asPaddingValues().calculateBottomPadding()),
+    ) {
+        Text(text = stringResource(R.string.transitions), style = MaterialTheme.typography.titleLarge)
+
+        Spacer(Modifier.height(16.dp))
+        Text(text = stringResource(R.string.mix_mode), style = MaterialTheme.typography.titleSmall)
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            MixMode.entries.forEach { mode ->
+                FilterChip(
+                    selected = mode == settings.mode,
+                    onClick = { coroutineScope.launch { context.setMixMode(mode) } },
+                    label = { Text(mixModeLabel(mode)) },
+                )
+            }
+        }
+        if (settings.mode == MixMode.SMART) {
+            Text(
+                text = stringResource(R.string.mix_smart_note),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+
+        if (settings.mode != MixMode.OFF) {
+            Spacer(Modifier.height(16.dp))
+            Text(text = stringResource(R.string.mix_transition_style), style = MaterialTheme.typography.titleSmall)
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                MixTransitionStyle.entries.forEach { style ->
+                    FilterChip(
+                        selected = style == settings.style,
+                        onClick = {
+                            coroutineScope.launch { context.safeDataStoreEdit { it[MixTransitionStyleKey] = style.name } }
+                        },
+                        label = { Text(transitionStyleLabel(style)) },
+                    )
+                }
+            }
+
+            Spacer(Modifier.height(8.dp))
+            val seconds = settings.durationSeconds.roundToInt()
+            Text(text = stringResource(R.string.crossfade_duration), style = MaterialTheme.typography.titleSmall)
+            Text(
+                text = pluralStringResource(R.plurals.seconds, seconds, seconds),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Slider(
+                value = settings.durationSeconds,
+                onValueChange = { value ->
+                    if (value != settings.durationSeconds) {
+                        coroutineScope.launch { context.safeDataStoreEdit { it[CrossfadeDurationKey] = value } }
+                    }
+                },
+                valueRange = MixDurationRange,
+                steps = MIX_DURATION_STEPS,
+            )
+        }
+
+        Spacer(Modifier.height(16.dp))
+        FilledTonalButton(
+            onClick = {
+                if (current != null && next != null) {
+                    bottomSheetPageState.show {
+                        TransitionEditor(current, next, bottomSheetPageState::dismiss)
+                    }
+                }
+            },
+            enabled = next != null,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Icon(
+                painter = painterResource(R.drawable.linear_scale),
+                contentDescription = null,
+                modifier = Modifier.size(18.dp),
+            )
+            Spacer(Modifier.width(8.dp))
+            Text(stringResource(R.string.transition_customize_next))
+        }
+        Text(
+            text =
+                if (current != null && next != null) {
+                    stringResource(R.string.transition_songs, current.title, next.title)
+                } else {
+                    stringResource(R.string.transition_no_next)
+                },
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(top = 4.dp),
+        )
+
+        Spacer(Modifier.height(8.dp))
+        TextButton(onClick = onOpenSettings) {
+            Text(stringResource(R.string.mix_all_settings))
+        }
     }
 }
 

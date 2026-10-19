@@ -414,6 +414,11 @@
     <string name="transition_chip_gapless">Gapless album</string>
     <string name="transition_chip_pair">%1$s · %2$s</string>
     <string name="transition_seconds_short">%d s</string>
+    <string name="transitions">Transitions</string>
+    <string name="transitions_desc">Mix mode, transition style and the blend into the next song</string>
+    <string name="transition_customize_next">Customize transition to next song</string>
+    <string name="transition_no_next">Nothing plays after this song</string>
+    <string name="mix_all_settings">All Mix settings</string>
 
     <!-- Romanization Settings -->
     <string name="lyrics_romanize_title">Romanization</string>
