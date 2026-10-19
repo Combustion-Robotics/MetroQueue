@@ -1,0 +1,10 @@
+MetroQueue 1.1.1: Harmonic mixing
+
+Mix
+- Key detection: Smart mix detects each song's musical key (shown as e.g. "Am (8A)") and mixes harmonically. Matching keys get long blends, clashing keys get short transitions
+- Smart mix fetches the start of the next song about a minute early, so the full plan (tempo, beats, key) is ready in time, even when streaming
+- The transition editor explains the planned transition: where it comes from, the style and why Auto picked it, tempo and key match, timing, skipped outro, and whether the next song was analysed yet
+- New defaults: Smart mix, 8 s, Auto style, crossfade on manual skip, no crossfade on gapless albums (existing settings are kept)
+
+Queue
+- Clearer shuffle button: a filled circle when shuffle is on
