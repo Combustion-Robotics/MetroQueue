@@ -140,6 +140,78 @@ class SmartMixPlannerTest {
         assertEquals(CONFIGURED_MS, plan.durationMs)
     }
 
+    @Test
+    fun `the reason says how the tempos fit`() {
+        val nudged = reason(tail(bpm = 124f), head(bpm = 122f), allowTempoNudge = true)
+        val aligned = reason(tail(bpm = 124f), head(bpm = 122f))
+        val clash = reason(tail(bpm = 128f), head(bpm = 96f))
+
+        assertEquals(StyleReason.TEMPO_MATCH, nudged.style)
+        assertEquals(TempoFit.MATCHED, nudged.tempo)
+        assertEquals(TempoFit.ALIGNED, aligned.tempo)
+        assertEquals(StyleReason.TEMPO_CLASH, clash.style)
+        assertEquals(TempoFit.TOO_FAR, clash.tempo)
+        assertNull(reason(tail(bpm = 124f), head(bpm = 0f)).tempo)
+    }
+
+    @Test
+    fun `the reason names the rule that picked the style`() {
+        val fadeOut = tail(bpm = 0f, outroStartMs = TRACK_MS - 14_000L, endOfAudioMs = TRACK_MS - 2_000L)
+        val steady = tail(bpm = 0f, outroStartMs = TRACK_MS - 4_500L)
+
+        assertEquals(StyleReason.FADES_OUT, reason(fadeOut, head(bpm = 0f)).style)
+        assertEquals(StyleReason.ABRUPT_END_STRONG_START, reason(tail(bpm = 0f), head(bpm = 0f)).style)
+        assertEquals(StyleReason.ABRUPT_END, reason(tail(bpm = 0f), head(bpm = 0f).copy(introEndMs = 5_000L)).style)
+        assertEquals(StyleReason.LEVEL_CLASH, reason(steady, head(bpm = 0f).copy(bodyDb = -25f)).style)
+        assertEquals(StyleReason.DEFAULT, reason(steady, head(bpm = 0f)).style)
+        assertEquals(TransitionStyle.FADE, StyleReason.DEFAULT.style)
+    }
+
+    @Test
+    fun `the reason carries the keys`() {
+        val clash = reason(tail(bpm = 0f, outroStartMs = TRACK_MS - 4_500L, key = C_MAJOR), head(bpm = 0f, key = F_SHARP_MAJOR))
+        val match = reason(tail(bpm = 124f, key = A_MINOR), head(bpm = 122f, key = E_MINOR))
+
+        assertEquals(StyleReason.KEY_CLASH, clash.style)
+        assertEquals(Harmony.CLASH, clash.harmony)
+        assertEquals(Harmony.COMPATIBLE, match.harmony)
+        assertNull(reason(tail(bpm = 124f), head(bpm = 122f)).harmony)
+    }
+
+    @Test
+    fun `the reason tells a fallback without the next song and a style the user chose`() {
+        val fallback = reason(tail(bpm = 124f), null)
+        val chosen = reason(tail(bpm = 128f), head(bpm = 96f), style = TransitionStyle.RISE)
+
+        assertEquals(false, fallback.withIncoming)
+        assertNull(fallback.tempo)
+        assertEquals(true, chosen.withIncoming)
+        assertNull(chosen.style)
+        assertEquals(TempoFit.TOO_FAR, chosen.tempo)
+    }
+
+    @Test
+    fun `the plan with its reason is the same plan`() {
+        val outgoing = tail(bpm = 124f, key = A_MINOR)
+        val incoming = head(bpm = 122f, key = E_MINOR)
+
+        assertEquals(
+            SmartMixPlanner.plan(outgoing, incoming, TRACK_MS, CONFIGURED_MS, null, true),
+            SmartMixPlanner.planWithReason(outgoing, incoming, TRACK_MS, CONFIGURED_MS, null, true)?.plan,
+        )
+    }
+
+    private fun reason(
+        outgoing: MixAnalysis,
+        incoming: MixAnalysis?,
+        style: TransitionStyle? = null,
+        allowTempoNudge: Boolean = false,
+    ): SmartMixReason {
+        val result = SmartMixPlanner.planWithReason(outgoing, incoming, TRACK_MS, CONFIGURED_MS, style, allowTempoNudge)
+        assertNotNull(result)
+        return result!!.reason
+    }
+
     private fun plan(
         outgoing: MixAnalysis,
         incoming: MixAnalysis?,

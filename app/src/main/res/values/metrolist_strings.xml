@@ -393,9 +393,9 @@
     <string name="transition_bpm_value">%d BPM</string>
     <string name="transition_bpm_unknown">BPM unknown</string>
     <string name="transition_key_value">%1$s (%2$s)</string>
-    <string name="transition_keys_match">Keys match (%1$s → %2$s), a long blend sounds good</string>
+    <string name="transition_keys_match">Keys match (%1$s → %2$s)</string>
     <string name="transition_keys_close">Keys are close (%1$s → %2$s)</string>
-    <string name="transition_keys_clash">Key clash (%1$s → %2$s), keep the overlap short</string>
+    <string name="transition_keys_clash">Key clash (%1$s → %2$s)</string>
     <string name="transition_analysing">Analysing…</string>
     <string name="transition_not_loaded">Not loaded yet</string>
     <string name="transition_note">Plays whenever these two songs play one after the other, with Crossfade or Smart mix on</string>
@@ -427,6 +427,25 @@
     <string name="transition_waveform_not_cached">Play or download this song to see its waveform</string>
     <string name="transition_waveform_unavailable">No waveform for this song</string>
     <string name="transition_discard_title">Discard changes?</string>
+    <string name="transition_details">Details</string>
+    <string name="transition_custom_short">Custom</string>
+    <string name="transition_reason_fades_out">%1$s, the song fades out</string>
+    <string name="transition_reason_tempo_match">%1$s, tempos match</string>
+    <string name="transition_reason_tempo_clash">%1$s, tempos clash</string>
+    <string name="transition_reason_key_clash">%1$s, keys clash</string>
+    <string name="transition_reason_level_clash">%1$s, loudness differs</string>
+    <string name="transition_reason_strong_start">%1$s, abrupt end into a strong start</string>
+    <string name="transition_reason_abrupt_end">%1$s, abrupt end</string>
+    <string name="transition_tempo_matched">Tempo matched (%1$+.1f%%)</string>
+    <string name="transition_beats_aligned">Beats aligned</string>
+    <string name="transition_tempo_far">Tempos too far apart (%1$d vs %2$d BPM)</string>
+    <string name="transition_plan_starts">Starts at %1$s · %2$s</string>
+    <string name="transition_plan_switches">Switches at %1$s</string>
+    <string name="transition_plan_next_start">Next song from %1$s</string>
+    <string name="transition_plan_intro_skipped">Skips the next song\'s silent intro</string>
+    <string name="transition_plan_outro_skip">Skips %1$d s of the outro</string>
+    <string name="transition_plan_fallback">Planned without the next song\'s analysis</string>
+    <string name="transition_plan_not_analysed">Not analysed yet, plays as a crossfade</string>
     <string name="transition_discard">Discard</string>
     <string name="transition_keep_editing">Keep editing</string>
 

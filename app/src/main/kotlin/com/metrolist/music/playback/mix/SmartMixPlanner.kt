@@ -24,12 +24,13 @@ import kotlin.math.roundToLong
  * The tempo nudge keeps the pitch, so it doesn't change the keys.
  */
 object SmartMixPlanner {
-    /**
-     * @param style the user's style, or null to choose one from the analysis.
-     * @param allowTempoNudge whether the incoming song may play slightly faster or slower during
-     *   the overlap to match the outgoing tempo.
-     * @return null when [outgoing] doesn't belong to this track (another duration).
-     */
+    /** A transition and why it was planned that way. */
+    data class Result(
+        val plan: TransitionPlan,
+        val reason: SmartMixReason,
+    )
+
+    /** [planWithReason] without the reason. */
     fun plan(
         outgoing: MixAnalysis,
         incoming: MixAnalysis?,
@@ -37,7 +38,22 @@ object SmartMixPlanner {
         configuredDurationMs: Long,
         style: TransitionStyle?,
         allowTempoNudge: Boolean,
-    ): TransitionPlan? {
+    ): TransitionPlan? = planWithReason(outgoing, incoming, trackDurationMs, configuredDurationMs, style, allowTempoNudge)?.plan
+
+    /**
+     * @param style the user's style, or null to choose one from the analysis.
+     * @param allowTempoNudge whether the incoming song may play slightly faster or slower during
+     *   the overlap to match the outgoing tempo.
+     * @return null when [outgoing] doesn't belong to this track (another duration).
+     */
+    fun planWithReason(
+        outgoing: MixAnalysis,
+        incoming: MixAnalysis?,
+        trackDurationMs: Long,
+        configuredDurationMs: Long,
+        style: TransitionStyle?,
+        allowTempoNudge: Boolean,
+    ): Result? {
         if (trackDurationMs <= 0 || abs(outgoing.trackDurationMs - trackDurationMs) > DURATION_TOLERANCE_MS) return null
         val endOfAudioMs = outgoing.endOfAudioMs.coerceAtMost(trackDurationMs)
         val latestStartMs = trackDurationMs - CUT_END_MARGIN_MS
@@ -55,25 +71,32 @@ object SmartMixPlanner {
         val keysMatch = harmony == Harmony.COMPATIBLE
         val keyClash = harmony == Harmony.CLASH
 
-        val chosenStyle =
-            style ?: when {
-                fadesOut -> TransitionStyle.FADE
-                tempoMatch -> TransitionStyle.FILTER
-                tempoClash || levelClash || keyClash -> TransitionStyle.ECHO
-                abruptEnd && incomingStartsStrong -> TransitionStyle.CUT
-                abruptEnd -> TransitionStyle.RISE
-                else -> TransitionStyle.FADE
+        val styleReason =
+            when {
+                style != null -> null
+                fadesOut -> StyleReason.FADES_OUT
+                tempoMatch -> StyleReason.TEMPO_MATCH
+                tempoClash -> StyleReason.TEMPO_CLASH
+                keyClash -> StyleReason.KEY_CLASH
+                levelClash -> StyleReason.LEVEL_CLASH
+                abruptEnd && incomingStartsStrong -> StyleReason.ABRUPT_END_STRONG_START
+                abruptEnd -> StyleReason.ABRUPT_END
+                else -> StyleReason.DEFAULT
             }
+        val chosenStyle = style ?: styleReason?.style ?: TransitionStyle.FADE
         val incomingStartMs = incoming?.let(::introSkipMs)
 
         if (chosenStyle == TransitionStyle.CUT) {
-            return TransitionPlan(
-                startPositionMs = endOfAudioMs.coerceIn(earliestStartMs, latestStartMs),
-                durationMs = 0L,
-                incomingStartMs = incomingStartMs,
-                style = chosenStyle,
-                allowEarlyStart = false,
-            )
+            val plan =
+                TransitionPlan(
+                    startPositionMs = endOfAudioMs.coerceIn(earliestStartMs, latestStartMs),
+                    durationMs = 0L,
+                    incomingStartMs = incomingStartMs,
+                    style = chosenStyle,
+                    allowEarlyStart = false,
+                )
+            // Nothing overlaps, so the tempos don't meet
+            return Result(plan, SmartMixReason(style = styleReason, tempo = null, harmony = harmony, withIncoming = incoming != null))
         }
 
         val targetMs =
@@ -114,15 +137,24 @@ object SmartMixPlanner {
         // Don't keep the incoming song fading in long after the outgoing one has ended
         durationMs = durationMs.coerceAtMost(endOfAudioMs - startMs + END_OVERHANG_MS).coerceAtLeast(MIN_DURATION_MS)
 
-        return TransitionPlan(
-            startPositionMs = startMs,
-            durationMs = durationMs,
-            incomingStartMs = incomingStartMs,
-            style = chosenStyle,
-            allowEarlyStart = false,
-            echoDelayMs = echoDelayMs(outgoing),
-            incomingSpeed = incomingSpeed,
-        )
+        val plan =
+            TransitionPlan(
+                startPositionMs = startMs,
+                durationMs = durationMs,
+                incomingStartMs = incomingStartMs,
+                style = chosenStyle,
+                allowEarlyStart = false,
+                echoDelayMs = echoDelayMs(outgoing),
+                incomingSpeed = incomingSpeed,
+            )
+        val tempoFit =
+            when {
+                tempoMatch && incomingSpeed != 1f -> TempoFit.MATCHED
+                tempoMatch -> TempoFit.ALIGNED
+                tempoClash -> TempoFit.TOO_FAR
+                else -> null
+            }
+        return Result(plan, SmartMixReason(style = styleReason, tempo = tempoFit, harmony = harmony, withIncoming = incoming != null))
     }
 
     /**
@@ -186,3 +218,41 @@ object SmartMixPlanner {
     private const val INTRO_SKIP_MAX_MS = 10_000L
     private const val INTRO_SKIP_PREROLL_MS = 100L
 }
+
+/** Why smart mix picked a style, in the order its rules are checked. */
+enum class StyleReason(
+    val style: TransitionStyle,
+) {
+    FADES_OUT(TransitionStyle.FADE),
+    TEMPO_MATCH(TransitionStyle.FILTER),
+    TEMPO_CLASH(TransitionStyle.ECHO),
+    KEY_CLASH(TransitionStyle.ECHO),
+    LEVEL_CLASH(TransitionStyle.ECHO),
+    ABRUPT_END_STRONG_START(TransitionStyle.CUT),
+    ABRUPT_END(TransitionStyle.RISE),
+    DEFAULT(TransitionStyle.FADE),
+}
+
+enum class TempoFit {
+    /** The incoming song is nudged to the outgoing tempo, with the beats aligned. */
+    MATCHED,
+
+    /** Close enough without a nudge (or none allowed); the beats are aligned. */
+    ALIGNED,
+    TOO_FAR,
+}
+
+/**
+ * Why smart mix planned a transition the way it did.
+ *
+ * @param style null when the user's style was used.
+ * @param tempo null when a tempo is unknown, or nothing overlaps.
+ * @param harmony null unless both keys are confident.
+ * @param withIncoming false when planned from the outgoing song alone.
+ */
+data class SmartMixReason(
+    val style: StyleReason?,
+    val tempo: TempoFit?,
+    val harmony: Harmony?,
+    val withIncoming: Boolean,
+)

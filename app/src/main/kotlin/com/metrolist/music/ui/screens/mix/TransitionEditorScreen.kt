@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
@@ -80,17 +81,27 @@ import com.metrolist.music.constants.CrossfadeEnabledKey
 import com.metrolist.music.constants.MixMode
 import com.metrolist.music.models.MediaMetadata
 import com.metrolist.music.playback.mix.CustomTransition
+import com.metrolist.music.playback.mix.CustomTransitionPlanner
 import com.metrolist.music.playback.mix.Harmony
 import com.metrolist.music.playback.mix.MixAnalysis
 import com.metrolist.music.playback.mix.MixAnalysisRepository
 import com.metrolist.music.playback.mix.MixRegion
+import com.metrolist.music.playback.mix.PlannedTransition
 import com.metrolist.music.playback.mix.SmartMixPlanner
+import com.metrolist.music.playback.mix.StyleReason
+import com.metrolist.music.playback.mix.TempoFit
+import com.metrolist.music.playback.mix.TransitionPlan
+import com.metrolist.music.playback.mix.TransitionSource
 import com.metrolist.music.playback.mix.TransitionStyle
+import com.metrolist.music.ui.menu.MixSettings
 import com.metrolist.music.ui.menu.labelRes
+import com.metrolist.music.ui.menu.mixModeLabel
+import com.metrolist.music.ui.menu.rememberMixSettings
 import com.metrolist.music.ui.menu.setMixMode
 import com.metrolist.music.utils.rememberPreference
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlin.math.abs
 import kotlin.math.roundToInt
 import kotlin.math.roundToLong
 
@@ -143,6 +154,7 @@ private fun TransitionEditor(
     // Defaults to on so the "Mix is off" note doesn't flash while the setting loads
     val mixEnabled by rememberPreference(CrossfadeEnabledKey, defaultValue = true)
     val crossfadeSeconds by rememberPreference(CrossfadeDurationKey, defaultValue = com.metrolist.music.constants.DEFAULT_CROSSFADE_DURATION)
+    val mixSettings = rememberMixSettings()
 
     var saved by remember { mutableStateOf(repository.get(from.id, to.id)) }
     var style by remember { mutableStateOf(saved?.style) }
@@ -233,6 +245,19 @@ private fun TransitionEditor(
             tempoMatch != (saved?.tempoMatch ?: true)
 
     fun edited() = CustomTransition(from.id, to.id, effectiveStyle, effectiveDurationMs, endMs, startMs, tempoMatch)
+
+    // What plays: the engine's plan while these songs play in a row, else (or with unsaved edits) an estimate
+    var livePlan by remember { mutableStateOf<PlannedTransition?>(null) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            livePlan = service.plannedTransition(from.id, to.id)
+            delay(PLAN_REFRESH_MS)
+        }
+    }
+    val sameAlbum = from.album != null && from.album.title == to.album?.title
+    val planned =
+        livePlan.takeIf { !dirty }
+            ?: mixSettings?.let { estimatedTransition(it, if (dirty) edited() else saved, sameAlbum, tail, head, fromDurationMs) }
 
     fun close() {
         if (dirty) confirmDiscard = true else onDismiss()
@@ -411,7 +436,7 @@ private fun TransitionEditor(
                 LaneHeader(to, tempoText(headOutcome), MaterialTheme.colorScheme.tertiary)
 
                 Column(Modifier.padding(horizontal = 16.dp)) {
-                    HarmonyNote(tail, head)
+                    planned?.let { TransitionDetails(it, tail, head, fromDurationMs) }
                     Text(
                         text = stringResource(R.string.transition_editor_hint),
                         style = MaterialTheme.typography.bodySmall,
@@ -705,36 +730,205 @@ private fun tempoText(outcome: MixAnalysisRepository.Outcome?): String =
         }
     }
 
-/** How the two songs' keys go together, when both are clear. */
-@Composable
-private fun HarmonyNote(
+/**
+ * What the engine would plan for a pair that isn't playing in a row (or with unsaved edits);
+ * mirrors MusicService.planTransition.
+ */
+private fun estimatedTransition(
+    settings: MixSettings,
+    custom: CustomTransition?,
+    sameAlbum: Boolean,
     tail: MixAnalysis?,
     head: MixAnalysis?,
+    fromDurationMs: Long?,
+): PlannedTransition {
+    if (settings.mode == MixMode.OFF) return PlannedTransition(TransitionSource.OFF)
+    if (custom != null) {
+        val plan = fromDurationMs?.let { CustomTransitionPlanner.plan(custom, it, tail, head, allowTempoNudge = true) }
+        return PlannedTransition(TransitionSource.CUSTOM, plan)
+    }
+    if (settings.skipGaplessAlbums && sameAlbum) return PlannedTransition(TransitionSource.GAPLESS)
+    val durationMs = (settings.durationSeconds * 1000).toLong()
+    // Auto has no concrete style
+    val style = TransitionStyle.entries.find { it.name == settings.style.name }
+    if (settings.mode == MixMode.SMART && tail != null) {
+        SmartMixPlanner.planWithReason(tail, head, tail.trackDurationMs, durationMs, style, allowTempoNudge = true)?.let {
+            return PlannedTransition(TransitionSource.SMART, it.plan, it.reason)
+        }
+    }
+    val crossfadeStyle = style ?: TransitionStyle.FADE
+    val plan =
+        fromDurationMs?.takeIf { it > durationMs }?.let {
+            if (crossfadeStyle == TransitionStyle.CUT) {
+                TransitionPlan(it - CUT_END_MARGIN_MS, 0L, style = crossfadeStyle)
+            } else {
+                TransitionPlan(it - durationMs, durationMs, style = crossfadeStyle)
+            }
+        }
+    return PlannedTransition(if (settings.mode == MixMode.SMART) TransitionSource.SMART else TransitionSource.CROSSFADE, plan)
+}
+
+/** One line on what the transition does; tapping it shows the details that apply. */
+@Composable
+private fun TransitionDetails(
+    planned: PlannedTransition,
+    tail: MixAnalysis?,
+    head: MixAnalysis?,
+    fromDurationMs: Long?,
 ) {
-    val harmony = if (tail != null && head != null) SmartMixPlanner.harmony(tail, head) else null
+    var expanded by rememberSaveable { mutableStateOf(false) }
+    val details = transitionDetails(planned, tail, head, fromDurationMs)
+    Surface(
+        onClick = { expanded = !expanded },
+        enabled = details.isNotEmpty(),
+        shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+    ) {
+        Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    painter = painterResource(R.drawable.info),
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(18.dp),
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    text = transitionSummary(planned),
+                    style = MaterialTheme.typography.bodyMedium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+                if (details.isNotEmpty()) {
+                    Icon(
+                        painter = painterResource(if (expanded) R.drawable.expand_less else R.drawable.expand_more),
+                        contentDescription = stringResource(R.string.transition_details),
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
+            }
+            if (expanded) {
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier.padding(top = 8.dp),
+                ) {
+                    details.forEach {
+                        Surface(shape = CircleShape, color = MaterialTheme.colorScheme.surfaceContainerHighest) {
+                            Text(
+                                text = it,
+                                style = MaterialTheme.typography.labelMedium,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** Where the transition comes from and its style, with why smart mix picked it, e.g. "Smart mix · Filter, tempos match". */
+@Composable
+private fun transitionSummary(planned: PlannedTransition): String {
+    val styleLabel = planned.plan?.let { stringResource(it.style.labelRes) }
+    return when (planned.source) {
+        TransitionSource.OFF -> stringResource(R.string.transition_chip_off)
+        TransitionSource.GAPLESS -> stringResource(R.string.transition_chip_gapless)
+        TransitionSource.CUSTOM ->
+            styleLabel?.let { stringResource(R.string.transition_chip_custom, it) } ?: stringResource(R.string.transition_custom_short)
+        TransitionSource.CROSSFADE, TransitionSource.SMART -> {
+            val mode = mixModeLabel(if (planned.source == TransitionSource.SMART) MixMode.SMART else MixMode.CROSSFADE)
+            val why =
+                styleLabel?.let { style ->
+                    when (planned.reason?.style) {
+                        StyleReason.FADES_OUT -> stringResource(R.string.transition_reason_fades_out, style)
+                        StyleReason.TEMPO_MATCH -> stringResource(R.string.transition_reason_tempo_match, style)
+                        StyleReason.TEMPO_CLASH -> stringResource(R.string.transition_reason_tempo_clash, style)
+                        StyleReason.KEY_CLASH -> stringResource(R.string.transition_reason_key_clash, style)
+                        StyleReason.LEVEL_CLASH -> stringResource(R.string.transition_reason_level_clash, style)
+                        StyleReason.ABRUPT_END_STRONG_START -> stringResource(R.string.transition_reason_strong_start, style)
+                        StyleReason.ABRUPT_END -> stringResource(R.string.transition_reason_abrupt_end, style)
+                        StyleReason.DEFAULT, null -> style
+                    }
+                }
+            why?.let { stringResource(R.string.transition_chip_pair, mode, it) } ?: mode
+        }
+    }
+}
+
+/** Tempo, keys, timing and analysis notes that apply to [planned]; unknowns and defaults are left out. */
+@Composable
+private fun transitionDetails(
+    planned: PlannedTransition,
+    tail: MixAnalysis?,
+    head: MixAnalysis?,
+    fromDurationMs: Long?,
+): List<String> {
+    val plan = planned.plan ?: return emptyList()
+    val reason = planned.reason
+    val details = ArrayList<String>()
+    val tempo = reason?.tempo ?: TempoFit.MATCHED.takeIf { plan.incomingSpeed != 1f }
+    when (tempo) {
+        TempoFit.MATCHED -> details += stringResource(R.string.transition_tempo_matched, (plan.incomingSpeed - 1f) * 100f)
+        TempoFit.ALIGNED -> details += stringResource(R.string.transition_beats_aligned)
+        TempoFit.TOO_FAR ->
+            if (tail != null && head != null) {
+                details += stringResource(R.string.transition_tempo_far, tail.bpm.roundToInt(), head.bpm.roundToInt())
+            }
+        null -> Unit
+    }
+    val harmony = reason?.harmony ?: if (tail != null && head != null) SmartMixPlanner.harmony(tail, head) else null
     val fromKey = tail?.musicalKey
     val toKey = head?.musicalKey
-    if (harmony == null || fromKey == null || toKey == null) return
-    Text(
-        text =
-            stringResource(
-                when (harmony) {
-                    Harmony.COMPATIBLE -> R.string.transition_keys_match
-                    Harmony.NEUTRAL -> R.string.transition_keys_close
-                    Harmony.CLASH -> R.string.transition_keys_clash
-                },
-                fromKey.camelotCode,
-                toKey.camelotCode,
-            ),
-        style = MaterialTheme.typography.bodyMedium,
-        color =
+    if (harmony != null && fromKey != null && toKey != null) {
+        val res =
             when (harmony) {
-                Harmony.COMPATIBLE -> MaterialTheme.colorScheme.primary
-                Harmony.NEUTRAL -> MaterialTheme.colorScheme.onSurfaceVariant
-                Harmony.CLASH -> MaterialTheme.colorScheme.error
-            },
-        modifier = Modifier.padding(bottom = 8.dp),
-    )
+                Harmony.COMPATIBLE -> R.string.transition_keys_match
+                Harmony.NEUTRAL -> R.string.transition_keys_close
+                Harmony.CLASH -> R.string.transition_keys_clash
+            }
+        details += stringResource(res, fromKey.camelotCode, toKey.camelotCode)
+    }
+    details +=
+        if (plan.style == TransitionStyle.CUT) {
+            stringResource(R.string.transition_plan_switches, formatClock(plan.startPositionMs))
+        } else {
+            stringResource(
+                R.string.transition_plan_starts,
+                formatClock(plan.startPositionMs),
+                stringResource(R.string.transition_seconds_short, ((plan.durationMs + 500) / 1000).toInt()),
+            )
+        }
+    val incomingStartMs = plan.incomingStartMs ?: 0L
+    if (incomingStartMs >= MIN_SHOWN_SKIP_MS) {
+        details +=
+            if (head != null && incomingStartMs == SmartMixPlanner.introSkipMs(head)) {
+                stringResource(R.string.transition_plan_intro_skipped)
+            } else {
+                stringResource(R.string.transition_plan_next_start, formatClock(incomingStartMs))
+            }
+    }
+    // Audio of this song that never plays: the rest of its outro after the overlap
+    val audibleEndMs = tail?.takeIf { fromDurationMs == null || abs(it.trackDurationMs - fromDurationMs) <= DURATION_TOLERANCE_MS }?.endOfAudioMs ?: fromDurationMs
+    if (audibleEndMs != null) {
+        val skippedMs = audibleEndMs - (plan.startPositionMs + plan.durationMs)
+        if (skippedMs >= MIN_SHOWN_SKIP_MS) details += stringResource(R.string.transition_plan_outro_skip, ((skippedMs + 500) / 1000).toInt())
+    }
+    if (planned.source == TransitionSource.SMART) {
+        when {
+            reason == null -> details += stringResource(R.string.transition_plan_not_analysed)
+            !reason.withIncoming -> details += stringResource(R.string.transition_plan_fallback)
+        }
+    }
+    return details
+}
+
+private fun formatClock(ms: Long): String {
+    val seconds = (ms.coerceAtLeast(0L) + 500) / 1000
+    return "%d:%02d".format(seconds / 60, seconds % 60)
 }
 
 private const val ANALYSIS_RETRY_MS = 5_000L
@@ -743,3 +937,7 @@ private const val PLAYHEAD_IDLE_INTERVAL_MS = 500L
 private const val TIMELINE_HEIGHT_FRACTION = 0.42f
 private const val MIN_INCOMING_LEFT_MS = 1_000L
 private const val SLIDER_STEP_MS = 100L
+private const val PLAN_REFRESH_MS = 1_000L
+private const val MIN_SHOWN_SKIP_MS = 1_000L
+private const val CUT_END_MARGIN_MS = 150L
+private const val DURATION_TOLERANCE_MS = 2_000L

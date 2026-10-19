@@ -44,3 +44,18 @@ data class TransitionPlan(
     val echoDelayMs: Long? = null,
     val incomingSpeed: Float = 1f,
 )
+
+/** Where the transition out of a song comes from, in the order the engine checks. */
+enum class TransitionSource { OFF, CUSTOM, GAPLESS, SMART, CROSSFADE }
+
+/**
+ * The transition the engine plans between two songs, for showing what it will do.
+ *
+ * @param plan null when no transition plays (Mix off, gapless album).
+ * @param reason smart mix's reasons; null for other sources, or before the outgoing song is analysed.
+ */
+data class PlannedTransition(
+    val source: TransitionSource,
+    val plan: TransitionPlan? = null,
+    val reason: SmartMixReason? = null,
+)

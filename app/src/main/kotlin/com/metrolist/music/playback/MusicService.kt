@@ -223,8 +223,10 @@ import com.metrolist.music.playback.mix.MixAnalysis
 import com.metrolist.music.playback.mix.MixAnalysisRepository
 import com.metrolist.music.playback.mix.MixAudioDecoder
 import com.metrolist.music.playback.mix.MixRegion
+import com.metrolist.music.playback.mix.PlannedTransition
 import com.metrolist.music.playback.mix.SmartMixPlanner
 import com.metrolist.music.playback.mix.TransitionPlan
+import com.metrolist.music.playback.mix.TransitionSource
 import com.metrolist.music.playback.mix.TransitionStyle
 import com.metrolist.music.playback.queues.EmptyQueue
 import com.metrolist.music.playback.queues.ListQueue
@@ -5205,15 +5207,18 @@ class MusicService :
             send()
         }
 
+    private fun planAutoTransition(): TransitionPlan? = planTransition()?.plan
+
     /**
      * The transition out of the current track: the user's custom transition for this pair of
      * songs, else smart mix's, else the configured crossfade. Custom transitions apply in every
-     * mode but Off, also between songs of one album.
+     * mode but Off, also between songs of one album. [whilePaused] plans it as if playing.
      */
-    private fun planAutoTransition(): TransitionPlan? {
-        if (!crossfadeEnabled || taskCleared) return null
+    private fun planTransition(whilePaused: Boolean = false): PlannedTransition? {
+        if (taskCleared) return null
+        if (!crossfadeEnabled) return PlannedTransition(TransitionSource.OFF)
         if (castConnectionHandler?.isCasting?.value == true) return null
-        if (!player.playWhenReady ||
+        if ((!player.playWhenReady && !whilePaused) ||
             player.playbackState == Player.STATE_IDLE ||
             player.playbackState == Player.STATE_ENDED
         ) {
@@ -5227,28 +5232,47 @@ class MusicService :
 
         currentCustomTransition()?.let { custom ->
             val state = smartMixState?.takeIf { smartMixMatches(it) }
-            planCustomTransition(custom, state?.appliedTail, state?.appliedHead)?.let { return it }
+            planCustomTransition(custom, state?.appliedTail, state?.appliedHead)?.let {
+                return PlannedTransition(TransitionSource.CUSTOM, it)
+            }
         }
 
         val durationMs = crossfadeDuration.toLong()
         if (durationMs <= 0L || trackDurationMs <= durationMs) return null
-        if (crossfadeGapless && isNextItemGapless()) return null
+        if (crossfadeGapless && isNextItemGapless()) return PlannedTransition(TransitionSource.GAPLESS)
 
-        smartMixPlan()?.let { return it }
+        smartMixPlan()?.let { return PlannedTransition(TransitionSource.SMART, it.plan, it.reason) }
+        val source = if (smartMixEnabled) TransitionSource.SMART else TransitionSource.CROSSFADE
         val style = configuredTransitionStyle()
         if (style == TransitionStyle.CUT) {
             // Switch right at the end, or earlier where the song audibly ends
-            return TransitionPlan(
-                startPositionMs = trackDurationMs - CUT_END_MARGIN_MS,
-                durationMs = 0L,
+            val plan =
+                TransitionPlan(
+                    startPositionMs = trackDurationMs - CUT_END_MARGIN_MS,
+                    durationMs = 0L,
+                    style = style,
+                )
+            return PlannedTransition(source, plan)
+        }
+        val plan =
+            TransitionPlan(
+                startPositionMs = trackDurationMs - durationMs,
+                durationMs = durationMs,
                 style = style,
             )
-        }
-        return TransitionPlan(
-            startPositionMs = trackDurationMs - durationMs,
-            durationMs = durationMs,
-            style = style,
-        )
+        return PlannedTransition(source, plan)
+    }
+
+    /**
+     * The transition planned from [fromId] into [toId] while [fromId] plays with [toId] next, for
+     * the transition editor; null otherwise.
+     */
+    fun plannedTransition(
+        fromId: String,
+        toId: String,
+    ): PlannedTransition? {
+        if (!::player.isInitialized || player.currentMediaItem?.mediaId != fromId || smartMixTarget()?.mediaId != toId) return null
+        return planTransition(whilePaused = true)
     }
 
     // With smart mix, Auto is chosen per transition from the analysis; otherwise it is a plain fade
@@ -5262,7 +5286,7 @@ class MusicService :
         }
 
     /** Smart mix's transition for the current pair of songs, once its analysis has been taken over. */
-    private fun smartMixPlan(): TransitionPlan? {
+    private fun smartMixPlan(): SmartMixPlanner.Result? {
         if (!smartMixEnabled) return null
         val state = smartMixState ?: return null
         val tail = state.appliedTail ?: return null
@@ -5273,8 +5297,8 @@ class MusicService :
     private fun planSmartMix(
         tail: MixAnalysis,
         head: MixAnalysis?,
-    ): TransitionPlan? =
-        SmartMixPlanner.plan(
+    ): SmartMixPlanner.Result? =
+        SmartMixPlanner.planWithReason(
             outgoing = tail,
             incoming = head,
             trackDurationMs = player.duration,
@@ -5481,7 +5505,7 @@ class MusicService :
         if (isCrossfading || !smartMixMatches(state)) return false
         val plan =
             currentCustomTransition()?.let { planCustomTransition(it, tail, state.head) }
-                ?: (if (smartMixEnabled) planSmartMix(tail, state.head) else null)
+                ?: (if (smartMixEnabled) planSmartMix(tail, state.head)?.plan else null)
                 ?: return false
         val prebuffered = secondaryPlayer != null && secondaryTargetMediaId == state.toId
         val leadMs = if (prebuffered) SMART_MIX_PREBUFFERED_LEAD_MS else SMART_MIX_LEAD_MS
