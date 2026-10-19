@@ -95,6 +95,51 @@ class SmartMixPlannerTest {
         assertTrue(abs(ratio!! - 140.0 / 142) < 1e-6)
     }
 
+    @Test
+    fun `matching tempos in compatible keys blend longest`() {
+        val withoutKeys = plan(tail(bpm = 124f), head(bpm = 122f))
+        val withKeys = plan(tail(bpm = 124f, key = A_MINOR), head(bpm = 122f, key = E_MINOR))
+
+        assertEquals(TransitionStyle.FILTER, withKeys.style)
+        assertTrue(withKeys.durationMs > withoutKeys.durationMs)
+        assertTrue(withKeys.durationMs > 2 * CONFIGURED_MS)
+        assertTrue(withKeys.durationMs <= 16_000L)
+    }
+
+    @Test
+    fun `compatible keys blend longer without a tempo`() {
+        val plan = plan(tail(bpm = 0f, outroStartMs = TRACK_MS - 4_500L, key = A_MINOR), head(bpm = 0f, key = C_MAJOR))
+
+        assertEquals(TransitionStyle.FADE, plan.style)
+        assertEquals(2 * CONFIGURED_MS, plan.durationMs)
+    }
+
+    @Test
+    fun `clashing keys keep a matching tempo blend short`() {
+        val plan = plan(tail(bpm = 124f, key = C_MAJOR), head(bpm = 122f, key = F_SHARP_MAJOR))
+
+        assertEquals(TransitionStyle.FILTER, plan.style)
+        assertTrue(plan.durationMs <= 4_000L)
+    }
+
+    @Test
+    fun `clashing keys echo out quickly`() {
+        val plan = plan(tail(bpm = 0f, outroStartMs = TRACK_MS - 4_500L, key = C_MAJOR), head(bpm = 0f, key = F_SHARP_MAJOR))
+
+        assertEquals(TransitionStyle.ECHO, plan.style)
+        assertTrue(plan.durationMs <= 4_000L)
+    }
+
+    @Test
+    fun `keys are ignored unless both are confident`() {
+        val unsure = F_SHARP_MAJOR.copy(confidence = 0.2f)
+        val plan = plan(tail(bpm = 0f, outroStartMs = TRACK_MS - 4_500L, key = C_MAJOR), head(bpm = 0f, key = unsure))
+
+        assertNull(SmartMixPlanner.harmony(tail(bpm = 0f, key = C_MAJOR), head(bpm = 0f, key = unsure)))
+        assertEquals(TransitionStyle.FADE, plan.style)
+        assertEquals(CONFIGURED_MS, plan.durationMs)
+    }
+
     private fun plan(
         outgoing: MixAnalysis,
         incoming: MixAnalysis?,
@@ -111,6 +156,7 @@ class SmartMixPlannerTest {
         bpm: Float,
         outroStartMs: Long = TRACK_MS - 3_500L,
         endOfAudioMs: Long = TRACK_MS - 2_500L,
+        key: MusicalKey? = null,
     ) = MixAnalysis(
         trackDurationMs = TRACK_MS,
         regionStartMs = TRACK_MS - 30_000L,
@@ -126,12 +172,14 @@ class SmartMixPlannerTest {
         loudnessDb = -14f,
         bodyDb = -12f,
         peakDb = -0.5f,
+        musicalKey = key,
     )
 
     private fun head(
         bpm: Float,
         audioStartMs: Long = 0L,
         firstBeatMs: Long = 40L,
+        key: MusicalKey? = null,
     ) = MixAnalysis(
         trackDurationMs = 200_000L,
         regionStartMs = 0L,
@@ -147,10 +195,15 @@ class SmartMixPlannerTest {
         loudnessDb = -13f,
         bodyDb = -11f,
         peakDb = -0.3f,
+        musicalKey = key,
     )
 
     private companion object {
         const val TRACK_MS = 240_000L
         const val CONFIGURED_MS = 6_000L
+        val C_MAJOR = MusicalKey(0, minor = false, confidence = 0.9f)
+        val F_SHARP_MAJOR = MusicalKey(6, minor = false, confidence = 0.9f)
+        val A_MINOR = MusicalKey(9, minor = true, confidence = 0.9f)
+        val E_MINOR = MusicalKey(4, minor = true, confidence = 0.9f)
     }
 }

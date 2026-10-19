@@ -13,6 +13,15 @@ import kotlin.math.roundToLong
  * Turns the analysis of the outgoing song's end (and, when known, the incoming song's start) into
  * a transition: where to start, for how long, where the next song starts, which style, and an
  * optional small tempo nudge on the incoming song.
+ *
+ * Style, first rule that applies: a fade-out is faded; matching tempos get a beat-aligned Filter
+ * blend; clashing tempos, levels or keys echo out; an abrupt end cuts into a strong start or
+ * rises into the next song; anything else fades.
+ *
+ * Length: clashing tempos or keys keep the overlap short (at most 4 s); matching tempos or
+ * compatible keys ([Harmony.COMPATIBLE] on the Camelot wheel) blend for twice the configured
+ * duration, both together for three times, up to 16 s. Keys only count when both are confident.
+ * The tempo nudge keeps the pitch, so it doesn't change the keys.
  */
 object SmartMixPlanner {
     /**
@@ -42,12 +51,15 @@ object SmartMixPlanner {
         val tempoClash = tempoRatio != null && !tempoMatch
         val levelClash = incoming != null && abs(outgoing.bodyDb - incoming.bodyDb) >= LEVEL_CLASH_DB
         val incomingStartsStrong = incoming != null && incoming.introEndMs - incoming.audioStartMs <= STRONG_START_MS
+        val harmony = incoming?.let { harmony(outgoing, it) }
+        val keysMatch = harmony == Harmony.COMPATIBLE
+        val keyClash = harmony == Harmony.CLASH
 
         val chosenStyle =
             style ?: when {
                 fadesOut -> TransitionStyle.FADE
                 tempoMatch -> TransitionStyle.FILTER
-                tempoClash || levelClash -> TransitionStyle.ECHO
+                tempoClash || levelClash || keyClash -> TransitionStyle.ECHO
                 abruptEnd && incomingStartsStrong -> TransitionStyle.CUT
                 abruptEnd -> TransitionStyle.RISE
                 else -> TransitionStyle.FADE
@@ -66,8 +78,9 @@ object SmartMixPlanner {
 
         val targetMs =
             when {
-                tempoMatch -> (configuredDurationMs * 2).coerceAtMost(MAX_BLEND_MS)
-                tempoClash -> configuredDurationMs.coerceAtMost(CLASH_MAX_MS)
+                tempoClash || keyClash -> configuredDurationMs.coerceAtMost(CLASH_MAX_MS)
+                tempoMatch && keysMatch -> (configuredDurationMs * 3).coerceAtMost(MAX_BLEND_MS)
+                tempoMatch || keysMatch -> (configuredDurationMs * 2).coerceAtMost(MAX_BLEND_MS)
                 else -> configuredDurationMs
             }
         val beatMs = outgoing.beatMs
@@ -125,6 +138,16 @@ object SmartMixPlanner {
         while (ratio > OCTAVE_FOLD) ratio /= 2
         while (ratio < 1 / OCTAVE_FOLD) ratio *= 2
         return ratio
+    }
+
+    /** How the songs' keys go together, or null unless both are confident. */
+    fun harmony(
+        outgoing: MixAnalysis,
+        incoming: MixAnalysis,
+    ): Harmony? {
+        val outgoingKey = outgoing.musicalKey?.takeIf { it.isConfident } ?: return null
+        val incomingKey = incoming.musicalKey?.takeIf { it.isConfident } ?: return null
+        return outgoingKey.harmonyWith(incomingKey)
     }
 
     /** Speed for the incoming song that matches [tempoRatio], or 1 when the tempos are too far apart or already match. */
