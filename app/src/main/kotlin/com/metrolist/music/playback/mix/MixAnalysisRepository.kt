@@ -55,8 +55,8 @@ class MixAnalysisRepository(
     private val cacheMisses = HashMap<String, Int>()
 
     /**
-     * @param withWaveform whether a stored analysis without a [MixAnalysis.waveform] (from an
-     *   older version) should get one, if the audio is cached.
+     * A stored analysis from an older version gets what it lacks from cached audio, if it is
+     * still cached: the [MixAnalysis.musicalKey], and with [withWaveform] the [MixAnalysis.waveform].
      */
     suspend fun analysis(
         mediaId: String,
@@ -66,7 +66,9 @@ class MixAnalysisRepository(
     ): Outcome =
         withContext(dispatcher) {
             val stored = store.get(mediaId, region)
-            if (stored != null && (stored.waveform != null || !withWaveform)) return@withContext Outcome.Ready(stored)
+            if (stored != null && stored.musicalKey != null && (stored.waveform != null || !withWaveform)) {
+                return@withContext Outcome.Ready(stored)
+            }
             val key = "${region.name}:$mediaId"
             if (stored != null) {
                 if (key in unavailable) return@withContext Outcome.Ready(stored)
@@ -77,8 +79,12 @@ class MixAnalysisRepository(
                     return@withContext Outcome.Ready(stored)
                 }
                 val pcm = decoded.pcm
-                // Only the waveform is added, so plans made from the stored analysis stay the same
-                val updated = stored.copy(waveform = MixAnalyzer.waveform(pcm.samples, pcm.sampleRate, pcm.startMs))
+                // The rest stays as analysed before
+                val updated =
+                    stored.copy(
+                        waveform = stored.waveform ?: MixAnalyzer.waveform(pcm.samples, pcm.sampleRate, pcm.startMs),
+                        musicalKey = stored.musicalKey ?: MixAnalyzer.estimateKey(regionSamples(pcm, region).first, pcm.sampleRate),
+                    )
                 store.put(mediaId, region, updated)
                 return@withContext Outcome.Ready(updated)
             }
@@ -135,18 +141,27 @@ class MixAnalysisRepository(
         pcm: DecodedPcm,
         region: MixRegion,
     ): MixAnalysis? {
-        val regionSamples = (REGION_MS * pcm.sampleRate / 1000).toInt()
+        val (samples, startMs) = regionSamples(pcm, region)
+        return MixAnalyzer
+            .analyze(samples, pcm.sampleRate, startMs, pcm.trackDurationMs)
+            ?.copy(waveform = MixAnalyzer.waveform(pcm.samples, pcm.sampleRate, pcm.startMs))
+    }
+
+    /** The [REGION_MS] at the start or end of [pcm], and the track position it starts at. */
+    private fun regionSamples(
+        pcm: DecodedPcm,
+        region: MixRegion,
+    ): Pair<FloatArray, Long> {
+        val regionLength = (REGION_MS * pcm.sampleRate / 1000).toInt()
         val from =
             if (region == MixRegion.TAIL) {
                 ((pcm.trackDurationMs - REGION_MS - pcm.startMs) * pcm.sampleRate / 1000).toInt().coerceIn(0, pcm.samples.size)
             } else {
                 0
             }
-        val to = if (region == MixRegion.TAIL) pcm.samples.size else minOf(regionSamples, pcm.samples.size)
+        val to = if (region == MixRegion.TAIL) pcm.samples.size else minOf(regionLength, pcm.samples.size)
         val samples = if (from == 0 && to == pcm.samples.size) pcm.samples else pcm.samples.copyOfRange(from, to)
-        return MixAnalyzer
-            .analyze(samples, pcm.sampleRate, pcm.startMs + from * 1000L / pcm.sampleRate, pcm.trackDurationMs)
-            ?.copy(waveform = MixAnalyzer.waveform(pcm.samples, pcm.sampleRate, pcm.startMs))
+        return samples to pcm.startMs + from * 1000L / pcm.sampleRate
     }
 
     fun release() = dispatcher.close()

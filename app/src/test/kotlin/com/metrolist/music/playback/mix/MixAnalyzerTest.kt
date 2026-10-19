@@ -12,6 +12,7 @@ import org.junit.Test
 import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.exp
+import kotlin.math.pow
 import kotlin.math.sin
 import kotlin.math.sqrt
 import kotlin.random.Random
@@ -112,6 +113,54 @@ class MixAnalyzerTest {
         assertEquals(0f, levels.last(), 0.01f)
     }
 
+    @Test
+    fun `key of a major chord progression is found`() {
+        // I-IV-V-I with a bass line, in C, E flat and G major
+        for (tonic in listOf(0, 3, 7)) {
+            val key = MixAnalyzer.estimateKey(progression(MAJOR_CADENCE, tonic), SAMPLE_RATE)
+
+            assertEquals("tonic for $tonic", tonic, key.tonic)
+            assertEquals("mode for $tonic", false, key.minor)
+            assertTrue("confidence for $tonic: ${key.confidence}", key.isConfident)
+        }
+    }
+
+    @Test
+    fun `key of a minor chord progression is found`() {
+        // i-iv-V-i in A, C and E minor
+        for (tonic in listOf(9, 0, 4)) {
+            val key = MixAnalyzer.estimateKey(progression(MINOR_CADENCE, tonic - 9), SAMPLE_RATE)
+
+            assertEquals("tonic for $tonic", tonic, key.tonic)
+            assertEquals("mode for $tonic", true, key.minor)
+            assertTrue("confidence for $tonic: ${key.confidence}", key.isConfident)
+        }
+    }
+
+    @Test
+    fun `key survives drums and noise`() {
+        val random = Random(11)
+        val chords = progression(MAJOR_CADENCE, 7)
+        val samples =
+            signal(30_000) { ms ->
+                chords[(ms * SAMPLE_RATE / 1000).toInt()] + click(ms, 0.0, 500.0) + (random.nextDouble() - 0.5) * 0.2
+            }
+
+        val analysis = analyze(samples)
+
+        assertEquals("9B", analysis.musicalKey?.camelotCode)
+        assertTrue(analysis.musicalKey!!.isConfident)
+    }
+
+    @Test
+    fun `noise has no confident key`() {
+        val random = Random(3)
+        val samples = signal(30_000) { (random.nextDouble() - 0.5) * 0.4 }
+
+        assertTrue(!MixAnalyzer.estimateKey(samples, SAMPLE_RATE).isConfident)
+        assertEquals(0f, MixAnalyzer.estimateKey(FloatArray(SAMPLE_RATE * 10), SAMPLE_RATE).confidence)
+    }
+
     private fun analyze(
         samples: FloatArray,
         startMs: Long = 0L,
@@ -148,6 +197,19 @@ class MixAnalyzerTest {
         return 0.7 * decay * (sin(2 * PI * 1_700 * ms / 1000) + 0.6 * sin(2 * PI * 90 * ms / 1000))
     }
 
+    // Chords of MIDI notes, 2 s each, transposed by [transpose] semitones; notes have a few harmonics
+    private fun progression(
+        chords: List<IntArray>,
+        transpose: Int,
+    ): FloatArray =
+        signal(30_000) { ms ->
+            val chord = chords[(ms / 2_000).toInt() % chords.size]
+            chord.sumOf { note ->
+                val hz = 440 * 2.0.pow((note + transpose - 69) / 12.0)
+                (1..4).sumOf { h -> 0.05 * 0.5.pow(h - 1) * sin(2 * PI * h * hz * ms / 1000) }
+            }
+        }
+
     private fun gridError(
         positionMs: Long,
         firstMs: Double,
@@ -159,5 +221,9 @@ class MixAnalyzerTest {
 
     private companion object {
         const val SAMPLE_RATE = 12_000
+        val MAJOR_CADENCE =
+            listOf(intArrayOf(36, 48, 52, 55, 60), intArrayOf(41, 53, 57, 60), intArrayOf(43, 55, 59, 62), intArrayOf(36, 48, 52, 55, 60))
+        val MINOR_CADENCE =
+            listOf(intArrayOf(45, 57, 60, 64), intArrayOf(38, 50, 53, 57), intArrayOf(40, 52, 56, 59), intArrayOf(45, 57, 60, 64))
     }
 }

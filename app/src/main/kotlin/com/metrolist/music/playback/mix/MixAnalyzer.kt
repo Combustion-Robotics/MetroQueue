@@ -17,6 +17,7 @@ import kotlin.math.floor
 import kotlin.math.ln
 import kotlin.math.log10
 import kotlin.math.log2
+import kotlin.math.pow
 import kotlin.math.roundToInt
 import kotlin.math.roundToLong
 import kotlin.math.sqrt
@@ -41,6 +42,7 @@ enum class MixRegion { HEAD, TAIL }
  * @param peakDb sample peak, dBFS.
  * @param waveform level envelope of the decoded audio, which may reach further into the song
  *   than the analysed region; null in analyses stored before it existed.
+ * @param musicalKey key of the analysed region; null in analyses stored before it existed.
  */
 @Serializable
 data class MixAnalysis(
@@ -59,6 +61,7 @@ data class MixAnalysis(
     val bodyDb: Float,
     val peakDb: Float,
     val waveform: MixWaveform? = null,
+    val musicalKey: MusicalKey? = null,
 ) {
     val hasConfidentTempo: Boolean
         get() = bpm > 0f && bpmConfidence >= CONFIDENT_TEMPO
@@ -100,8 +103,8 @@ data class MixWaveform(
 }
 
 /**
- * Finds tempo, beat grid and level structure (silence, intro, outro) in mono PCM. Pure Kotlin
- * and bounded: a 30 s region at ~12 kHz takes a few thousand small FFTs.
+ * Finds tempo, beat grid, key and level structure (silence, intro, outro) in mono PCM. Pure Kotlin
+ * and bounded: a 30 s region at ~12 kHz takes a few thousand small FFTs and ~90 large ones.
  */
 object MixAnalyzer {
     /** Analyses [samples] (mono, -1..1) that start at [startMs] of a track; null if too short or silent. */
@@ -187,8 +190,109 @@ object MixAnalyzer {
             loudnessDb = loudnessDb.toFloat(),
             bodyDb = bodyDb.toFloat(),
             peakDb = (20 * log10(peak.toDouble() + 1e-9)).toFloat(),
+            musicalKey = estimateKey(samples, sampleRate),
         )
     }
+
+    /**
+     * Correlates a chromagram (pitch-class profile) of [samples] (mono, -1..1) with the
+     * Krumhansl-Kessler major and minor profiles in all 24 keys. The confidence is how far the
+     * best key leads the runner-up, so it is 0 for audio without a clear tonal centre.
+     */
+    fun estimateKey(
+        samples: FloatArray,
+        sampleRate: Int,
+    ): MusicalKey {
+        val chroma = chromagram(samples, sampleRate)
+        val scores =
+            DoubleArray(24) { key ->
+                val profile = if (key < 12) MAJOR_PROFILE else MINOR_PROFILE
+                correlation(chroma, key % 12, profile)
+            }
+        val order = scores.indices.sortedByDescending { scores[it] }
+        val best = order[0]
+        val margin = if (scores[best].isNaN()) 0.0 else scores[best] - scores[order[1]]
+        return MusicalKey(
+            tonic = best % 12,
+            minor = best >= 12,
+            confidence = (margin / KEY_MARGIN_FULL_SCALE).coerceIn(0.0, 1.0).toFloat(),
+        )
+    }
+
+    /**
+     * Summed over [KEY_HOP]-spaced frames: for each semitone from [KEY_LOWEST_NOTE] to
+     * [KEY_HIGHEST_NOTE], the strongest log magnitude among its FFT bins above the local spectral
+     * floor (so tones count, not noise or drums), weighted down towards the semitone's edges so a
+     * strong low note doesn't leak into its neighbours; then folded to 12 pitch classes (0 = C).
+     */
+    private fun chromagram(
+        samples: FloatArray,
+        sampleRate: Int,
+    ): DoubleArray {
+        val binHz = sampleRate.toDouble() / KEY_FFT_SIZE
+        val bins = (KEY_FFT_SIZE / 2 + 1).coerceAtMost((midiHz(KEY_HIGHEST_NOTE + 0.5) / binHz).toInt() + 1)
+        val binNote = IntArray(bins) { -1 }
+        val binWeight = DoubleArray(bins)
+        for (k in 1 until bins) {
+            val midi = 69 + 12 * log2(k * binHz / 440)
+            val note = midi.roundToInt()
+            if (note in KEY_LOWEST_NOTE..KEY_HIGHEST_NOTE) {
+                binNote[k] = note
+                val edge = cos(PI * (midi - note))
+                binWeight[k] = edge * edge
+            }
+        }
+
+        val chroma = DoubleArray(12)
+        val noteLevels = DoubleArray(KEY_HIGHEST_NOTE + 1)
+        val logMagnitude = DoubleArray(bins)
+        val windowed = DoubleArray(KEY_FFT_SIZE)
+        var offset = 0
+        while (offset + KEY_FFT_SIZE <= samples.size) {
+            for (i in 0 until KEY_FFT_SIZE) windowed[i] = samples[offset + i] * KEY_HANN[i]
+            val power = computeRfft(windowed)
+            for (k in 0 until bins) logMagnitude[k] = ln(1.0 + KEY_LOG_COMPRESSION * sqrt(power[k]))
+            noteLevels.fill(0.0)
+            var floorSum = 0.0
+            var floorStart = 0
+            var floorEnd = 0
+            for (k in 1 until bins) {
+                while (floorEnd < bins && floorEnd <= k + KEY_FLOOR_BINS) floorSum += logMagnitude[floorEnd++]
+                while (floorStart < k - KEY_FLOOR_BINS) floorSum -= logMagnitude[floorStart++]
+                val note = binNote[k]
+                if (note < 0) continue
+                val peak = logMagnitude[k] - floorSum / (floorEnd - floorStart)
+                val level = binWeight[k] * peak
+                if (level > noteLevels[note]) noteLevels[note] = level
+            }
+            for (note in KEY_LOWEST_NOTE..KEY_HIGHEST_NOTE) chroma[note % 12] += noteLevels[note]
+            offset += KEY_HOP
+        }
+        return chroma
+    }
+
+    /** Pearson correlation of [chroma] read from [tonic] on with [profile]; NaN for a flat chroma. */
+    private fun correlation(
+        chroma: DoubleArray,
+        tonic: Int,
+        profile: DoubleArray,
+    ): Double {
+        val chromaMean = chroma.average()
+        val profileMean = profile.average()
+        var product = 0.0
+        var chromaSquares = 0.0
+        var profileSquares = 0.0
+        for (i in 0 until 12) {
+            val c = chroma[(tonic + i) % 12] - chromaMean
+            val p = profile[i] - profileMean
+            product += c * p
+            chromaSquares += c * c
+            profileSquares += p * p
+        }
+        return product / sqrt(chromaSquares * profileSquares)
+    }
+
+    private fun midiHz(note: Double) = 440 * 2.0.pow((note - 69) / 12)
 
     /** Peak envelope of [samples] (mono, -1..1) that start at [startMs] of a track. */
     fun waveform(
@@ -420,4 +524,19 @@ object MixAnalyzer {
     private const val REFINE_STEP = 0.0005
 
     private val HANN = DoubleArray(FFT_SIZE) { i -> 0.5 * (1 - cos(2 * PI * i / FFT_SIZE)) }
+
+    // ~1.4 Hz bins at the analysis rate: enough to tell semitones apart down to A1 (55 Hz)
+    private const val KEY_FFT_SIZE = 8192
+    private const val KEY_HOP = 4096
+    private const val KEY_LOWEST_NOTE = 33 // A1, 55 Hz
+    private const val KEY_HIGHEST_NOTE = 95 // B6, ~1976 Hz
+    private const val KEY_LOG_COMPRESSION = 1e3
+    private const val KEY_FLOOR_BINS = 12
+    private const val KEY_MARGIN_FULL_SCALE = 0.1
+
+    private val KEY_HANN = DoubleArray(KEY_FFT_SIZE) { i -> 0.5 * (1 - cos(2 * PI * i / KEY_FFT_SIZE)) }
+
+    // Krumhansl-Kessler key profiles, from the tonic up in semitones
+    private val MAJOR_PROFILE = doubleArrayOf(6.35, 2.23, 3.48, 2.33, 4.38, 4.09, 2.52, 5.19, 2.39, 3.66, 2.29, 2.88)
+    private val MINOR_PROFILE = doubleArrayOf(6.33, 2.68, 3.52, 5.38, 2.60, 3.53, 2.54, 4.75, 3.98, 2.69, 3.34, 3.17)
 }
