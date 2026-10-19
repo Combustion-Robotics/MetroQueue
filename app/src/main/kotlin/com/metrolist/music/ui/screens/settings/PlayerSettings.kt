@@ -80,6 +80,10 @@ import com.metrolist.music.ui.component.EnumDialog
 import com.metrolist.music.ui.component.IconButton
 import com.metrolist.music.ui.component.Material3SettingsGroup
 import com.metrolist.music.ui.component.Material3SettingsItem
+import com.metrolist.music.ui.menu.MIX_DURATION_STEPS
+import com.metrolist.music.ui.menu.MixDurationRange
+import com.metrolist.music.ui.menu.mixModeLabel
+import com.metrolist.music.ui.menu.transitionStyleLabel
 import com.metrolist.music.ui.utils.backToMain
 import com.metrolist.music.utils.rememberEnumPreference
 import com.metrolist.music.utils.rememberPreference
@@ -610,8 +614,8 @@ fun PlayerSettings(
                                 Slider(
                                     value = crossfadeDuration,
                                     onValueChange = onCrossfadeDurationChange,
-                                    valueRange = 1f..15f,
-                                    steps = 14
+                                    valueRange = MixDurationRange,
+                                    steps = MIX_DURATION_STEPS
                                 )
                             }
                         }
@@ -1251,35 +1255,12 @@ fun PlayerSettings(
 }
 
 @Composable
-private fun mixModeLabel(mode: MixMode): String =
-    stringResource(
-        when (mode) {
-            MixMode.OFF -> R.string.mix_mode_off
-            MixMode.CROSSFADE -> R.string.crossfade
-            MixMode.SMART -> R.string.mix_mode_smart
-        }
-    )
-
-@Composable
 private fun mixModeDescription(mode: MixMode): String =
     stringResource(
         when (mode) {
             MixMode.OFF -> R.string.mix_mode_off_desc
             MixMode.CROSSFADE -> R.string.crossfade_desc
             MixMode.SMART -> R.string.mix_mode_smart_desc
-        }
-    )
-
-@Composable
-private fun transitionStyleLabel(style: MixTransitionStyle): String =
-    stringResource(
-        when (style) {
-            MixTransitionStyle.AUTO -> R.string.mix_transition_auto
-            MixTransitionStyle.FADE -> R.string.mix_transition_fade
-            MixTransitionStyle.FILTER -> R.string.mix_transition_filter
-            MixTransitionStyle.ECHO -> R.string.mix_transition_echo
-            MixTransitionStyle.RISE -> R.string.mix_transition_rise
-            MixTransitionStyle.CUT -> R.string.mix_transition_cut
         }
     )
 

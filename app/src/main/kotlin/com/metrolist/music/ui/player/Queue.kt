@@ -123,6 +123,9 @@ import com.metrolist.music.ui.component.MediaMetadataListItem
 import com.metrolist.music.ui.menu.PlayerMenu
 import com.metrolist.music.ui.menu.QueueMenu
 import com.metrolist.music.ui.menu.SelectionMediaMetadataMenu
+import com.metrolist.music.ui.menu.TransitionChip
+import com.metrolist.music.ui.menu.TransitionEditor
+import com.metrolist.music.ui.menu.rememberMixSettings
 import com.metrolist.music.ui.utils.ShowMediaInfo
 import com.metrolist.music.utils.dataStore
 import com.metrolist.music.utils.makeTimeString
@@ -673,6 +676,18 @@ fun Queue(
                         .mapTo(HashSet<Any>()) { it.first.uid }
                 }
             }
+        // The transition out of the playing song, shown between it and the next one
+        val mixSettings = rememberMixSettings()
+        val transitionFrom = queueWindows.getOrNull(currentWindowIndex)?.mediaItem
+        val transitionTo = transitionFrom?.let { queueWindows.getOrNull(currentWindowIndex + 1)?.mediaItem }
+        val nextCustomTransition =
+            if (transitionFrom != null && transitionTo != null) {
+                customTransitions[CustomTransition.pairKey(transitionFrom.mediaId, transitionTo.mediaId)]
+            } else {
+                null
+            }
+        val nextIsGapless =
+            transitionFrom?.mediaMetadata?.albumTitle?.let { it == transitionTo?.mediaMetadata?.albumTitle } == true
         val queueLength =
             remember(queueWindows) {
                 queueWindows.sumOf { it.mediaItem.metadata!!.duration }
@@ -803,6 +818,7 @@ fun Queue(
                     ) {
                         val currentItem by rememberUpdatedState(window)
                         val isActive = window.uid == currentPlayingUid
+                        val showTransitionChip = isActive && transitionTo != null && !inSelectMode && !isListenTogetherGuest
                         val dismissBoxState =
                             rememberSwipeToDismissBoxState(
                                 positionalThreshold = { totalDistance -> totalDistance },
@@ -869,7 +885,8 @@ fun Queue(
                                                 onCheckedChange = onCheckedChange,
                                             )
                                         } else {
-                                            if (window.uid in customTransitionUids) {
+                                            // The chip below the playing song already says so
+                                            if (window.uid in customTransitionUids && !showTransitionChip) {
                                                 Icon(
                                                     painter = painterResource(R.drawable.linear_scale),
                                                     contentDescription = stringResource(R.string.transition_custom),
@@ -990,6 +1007,22 @@ fun Queue(
                                 ) {
                                     content()
                                 }
+                            }
+                            if (showTransitionChip && mixSettings != null) {
+                                TransitionChip(
+                                    settings = mixSettings,
+                                    custom = nextCustomTransition,
+                                    gaplessAlbum = nextIsGapless,
+                                    onClick = {
+                                        val from = transitionFrom?.metadata
+                                        val to = transitionTo?.metadata
+                                        if (from != null && to != null) {
+                                            bottomSheetPageState.show {
+                                                TransitionEditor(from, to, bottomSheetPageState::dismiss)
+                                            }
+                                        }
+                                    },
+                                )
                             }
                         }
                     }

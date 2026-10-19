@@ -408,6 +408,12 @@
     <string name="transition_match_tempo_unknown">Needs both tempos, which are detected from cached or downloaded songs</string>
     <string name="transition_preview_unavailable">Play this song with the next one after it to preview</string>
     <string name="transition_custom">Custom transition to the next song</string>
+    <string name="transition_turn_on_crossfade">Turn on crossfade</string>
+    <string name="transition_chip_off">Mix off</string>
+    <string name="transition_chip_custom">Custom · %1$s</string>
+    <string name="transition_chip_gapless">Gapless album</string>
+    <string name="transition_chip_pair">%1$s · %2$s</string>
+    <string name="transition_seconds_short">%d s</string>
 
     <!-- Romanization Settings -->
     <string name="lyrics_romanize_title">Romanization</string>

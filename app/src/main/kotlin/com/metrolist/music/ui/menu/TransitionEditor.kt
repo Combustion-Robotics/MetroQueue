@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -46,6 +47,7 @@ import com.metrolist.music.LocalPlayerConnection
 import com.metrolist.music.R
 import com.metrolist.music.constants.CrossfadeDurationKey
 import com.metrolist.music.constants.CrossfadeEnabledKey
+import com.metrolist.music.constants.MixMode
 import com.metrolist.music.models.MediaMetadata
 import com.metrolist.music.playback.mix.CustomTransition
 import com.metrolist.music.playback.mix.MixAnalysisRepository
@@ -155,6 +157,14 @@ fun TransitionEditor(
             style = MaterialTheme.typography.bodySmall,
             color = if (mixEnabled) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error,
         )
+        if (!mixEnabled) {
+            FilledTonalButton(
+                onClick = { coroutineScope.launch { context.setMixMode(MixMode.CROSSFADE) } },
+                modifier = Modifier.padding(top = 8.dp),
+            ) {
+                Text(stringResource(R.string.transition_turn_on_crossfade))
+            }
+        }
 
         Spacer(Modifier.height(16.dp))
         Text(text = stringResource(R.string.mix_transition_style), style = MaterialTheme.typography.titleSmall)
@@ -327,7 +337,7 @@ private fun tempoText(outcome: MixAnalysisRepository.Outcome?): String =
                 ?: stringResource(R.string.transition_bpm_unknown)
     }
 
-private val TransitionStyle.labelRes: Int
+internal val TransitionStyle.labelRes: Int
     get() =
         when (this) {
             TransitionStyle.FADE -> R.string.mix_transition_fade
