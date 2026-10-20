@@ -1,0 +1,13 @@
+MetroQueue 1.2.0: TV
+
+TV (Google TV / Fire TV)
+- New TV interface: side menu, Home rows, Search, Library, album/playlist/artist pages, fullscreen Now Playing with lyrics and Up next, Queue and Settings, all in the same style as the phone app
+- Remote-friendly: D-pad navigation, media keys, the Fire TV menu button opens the queue
+- Full-size launcher banner
+- Play on TV: pair your phone with a 6-digit code, then control the TV with the phone's player, queue, notification and volume buttons, and move playback between phone and TV
+- Phone profiles: sync your phone's library to the TV; each phone is a profile, picked on "Who's listening?"
+- The browser remote now updates instantly
+
+Queue
+- "Play added songs first" is on by default
+- Clearer repeat button (filled when on, like shuffle)
