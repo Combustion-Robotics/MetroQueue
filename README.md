@@ -4,7 +4,7 @@
 
 # MetroQueue
 
-### A YouTube Music client for Android with a smarter queue and a remote for your PC
+### A YouTube Music client for Android that mixes your songs, respects your queue and has a remote for your PC
 
 [![Latest release](https://img.shields.io/github/v/release/Combustion-Robotics/MetroQueue?style=for-the-badge&labelColor=0d1117)](https://github.com/Combustion-Robotics/MetroQueue/releases/latest)
 [![License](https://img.shields.io/github/license/Combustion-Robotics/MetroQueue?style=for-the-badge&labelColor=0d1117)](LICENSE)
@@ -16,21 +16,61 @@
 
 ---
 
-MetroQueue is a fork of [Metrolist](https://github.com/MetrolistGroup/Metrolist), the Material 3 YouTube Music client. It keeps everything Metrolist does and adds a queue that works the way you'd expect: the songs you pick play first. It also adds a web remote, so you can control the music from any computer on your Wi-Fi.
+MetroQueue is a fork of [Metrolist](https://github.com/MetrolistGroup/Metrolist), the Material 3 YouTube Music client. It keeps everything Metrolist does and adds:
+
+- **[Smart mix](#smart-mix)**: Spotify-style transitions, planned for every pair of songs on your phone.
+- **[Transition editor](#transition-editor)**: see both songs' waveforms and shape the blend yourself.
+- **[A queue that respects your picks](#a-queue-that-respects-your-picks)**: the songs you add play first.
+- **[Remote control](#remote-control-from-your-pc)**: control the music from any browser on your Wi-Fi.
+- **[Voice](#voice)**: "Play *Bohemian Rhapsody* on MetroQueue" with Gemini or Google Assistant.
 
 Metrolist is moving on to Metrolist-KMP. MetroQueue carries the Android app forward from Metrolist 13.7.0.
 
 ## What's different from Metrolist
 
-#### A queue that respects your picks
-- **Play added songs first.** Songs you add go into your own "Next in queue" block right after the current song, ahead of radio, shuffled or album songs. *Play next* puts a song at the top of your block, and *Add to queue* puts it at the bottom.
+### Smart mix
+
+Songs blend into each other like a DJ set instead of stopping and starting.
+
+- **Analysed on your device.** Smart mix detects each song's tempo, beats, structure (intro, outro, quiet and loud parts) and musical key. No server, no account.
+- **A plan for every transition.** For each pair of songs it picks the style, where to start, how long to overlap and where to switch, and lines up the beats.
+- **Tempo matching.** When the tempos are close, the next song plays slightly faster or slower while they overlap so the beats stay together.
+- **Harmonic mixing.** Keys are compared on the Camelot wheel, so songs in matching or nearby keys get longer blends and clashing keys get short ones.
+- **Transition styles:** *Fade*, *Filter* (the current song thins out as the next opens up), *Echo*, *Rise* (build up, then drop in), *Cut*, or *Auto* to let smart mix choose.
+- **No dead air.** Silent intros and long outros are skipped.
+- **Ready when streaming.** The start of the next song is fetched early, so its transition is planned before it's needed.
+- **Crossfade on manual skip** (optional): skipping blends into the next or previous song too.
+
+Choose **Off**, **Crossfade** or **Smart mix** in **Settings → Player and audio → Mix**. Smart mix is on by default and works best with cached or downloaded songs.
+
+### Transition editor
+
+A full-screen editor for the blend between two songs.
+
+- **Waveforms of both songs**, one above the other. Drag the next song to line it up, and drag the handles to set the overlap and where the current song ends.
+- **Snap to beats** with a haptic tick on each beat. Pinch to zoom, double tap to fit.
+- **Style chips**, **Match tempo**, and each song's BPM and key.
+- **Preview** the transition, and **replay** it after it plays.
+- **Explains the plan**: why smart mix picked this style and length (for example *Filter, keys clash* or *tempo matched, beats aligned*).
+- **Saved per song pair.** A custom transition plays whenever those two songs play back to back, and it's included in your backups.
+
+Open it from:
+- the **transition button** between the current and next song in the queue,
+- **Now Playing → ⋮ → Transitions**,
+- **Transition to next song…** in a song's menu.
+
+### A queue that respects your picks
+
+- **Play added songs first.** Like Spotify's "Your queue": songs you add go into your own **Next in queue** block right after the current song, ahead of radio, shuffled or album songs. *Play next* puts a song at the top of your block, and *Add to queue* puts it at the bottom.
 - **Fresh radio after your picks** (optional). When your last pick starts, the held radio or shuffled songs are swapped for a new radio based on that song.
 - **Queue sections.** The queue shows **Next in queue** and **Next from: …** headers, so you can see what you added and what's coming from the playlist or radio.
 - **Clear queue.** One tap keeps the current song playing and removes everything else.
+- **Shuffle and repeat at a glance.** The queue clearly shows whether shuffle and repeat are on.
 
 Turn these on in **Settings → Player and audio**.
 
-#### Remote control from your PC
+### Remote control from your PC
+
 - Turn on **Settings → Integrations → Remote control** and open the link it shows on any browser on the same Wi-Fi. Nothing to install on the PC.
 - See what's playing with the album art, and control play/pause, skip, seek, volume, shuffle and repeat.
 - Manage the queue: jump to, move or remove songs, or clear it.
@@ -40,7 +80,12 @@ Turn these on in **Settings → Player and audio**.
 
 > The remote uses plain HTTP and a secret key in the link. Use it on your home network, not on public Wi-Fi.
 
-#### Builds
+### Voice
+
+Ask Gemini or Google Assistant to *"play … on MetroQueue"* and it searches YouTube Music and starts playing.
+
+### Builds
+
 - Optimized, signed builds for every change: stable releases from `main`, and a rolling **dev Builds** pre-release from `dev`.
 - The in-app updater checks MetroQueue's releases.
 
