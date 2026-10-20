@@ -58,6 +58,8 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavType
@@ -199,6 +201,25 @@ fun TvApp(
             )
         }
 
+        if (activeConnection != null && tvController.nowPlayingVisible) {
+            TvOverlay(
+                playerConnection = activeConnection,
+                onDismiss = { tvController.nowPlayingVisible = false },
+                onMenu = { tvController.queueVisible = true },
+            ) {
+                TvNowPlaying(activeConnection, onOpenQueue = { tvController.queueVisible = true })
+            }
+        }
+        if (activeConnection != null && tvController.queueVisible) {
+            TvOverlay(
+                playerConnection = activeConnection,
+                onDismiss = { tvController.queueVisible = false },
+                onMenu = { tvController.queueVisible = false },
+            ) {
+                TvQueue(activeConnection)
+            }
+        }
+
         // Back from a top-level screen first moves focus to the rail, then goes Home, then leaves the app.
         BackHandler(enabled = isTopLevel && (contentHasFocus || selectedTab != TvTab.HOME)) {
             if (contentHasFocus) {
@@ -305,6 +326,25 @@ private fun TvNavRail(
                 }
             }
         }
+    }
+}
+
+/**
+ * Full-screen layer in its own window, so D-pad focus can't wander to the screen underneath and Back
+ * simply closes it.
+ */
+@Composable
+private fun TvOverlay(
+    playerConnection: PlayerConnection,
+    onDismiss: () -> Unit,
+    onMenu: () -> Unit,
+    content: @Composable () -> Unit,
+) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
+    ) {
+        Box(Modifier.fillMaxSize().tvRemoteKeys(playerConnection, onMenu)) { content() }
     }
 }
 

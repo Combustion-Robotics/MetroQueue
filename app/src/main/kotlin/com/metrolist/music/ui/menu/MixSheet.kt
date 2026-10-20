@@ -270,7 +270,7 @@ fun TransitionChip(
 
 // Mirrors MusicService.planAutoTransition: custom > gapless album > smart mix > crossfade
 @Composable
-private fun transitionSummary(
+internal fun transitionSummary(
     settings: MixSettings,
     custom: CustomTransition?,
     gaplessAlbum: Boolean,
