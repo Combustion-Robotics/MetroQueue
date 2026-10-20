@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LocalContentColor
@@ -37,8 +38,10 @@ import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.metrolist.innertube.utils.parseCookieString
 import com.metrolist.music.BuildConfig
+import com.metrolist.music.LocalPlayerConnection
 import com.metrolist.music.R
 import com.metrolist.music.constants.AccountNameKey
 import com.metrolist.music.constants.AudioQuality
@@ -63,6 +66,8 @@ import com.metrolist.music.utils.rememberPreference
 import com.metrolist.music.utils.safeDataStoreEdit
 import com.metrolist.music.viewmodels.AccountSettingsViewModel
 import kotlinx.coroutines.launch
+import java.text.DateFormat
+import java.util.Date
 import java.util.UUID
 import kotlin.math.roundToInt
 
@@ -82,6 +87,9 @@ fun TvSettingsScreen(accountViewModel: AccountSettingsViewModel = hiltViewModel(
     var remoteEnabled by rememberPreference(RemoteControlEnabledKey, false)
     var remoteKey by rememberPreference(RemoteControlKeyKey, "")
     val remoteUrl = remember(remoteEnabled, remoteKey) { if (remoteEnabled && remoteKey.isNotEmpty()) RemoteControlServer.url(remoteKey) else null }
+    val pairing = LocalPlayerConnection.current?.service?.tvPairing
+    val pairedDevices = pairing?.devices?.collectAsStateWithLifecycle()?.value.orEmpty()
+    val dateFormat = remember { DateFormat.getDateInstance(DateFormat.MEDIUM) }
     var dynamicTheme by rememberPreference(DynamicThemeKey, true)
     var pureBlack by rememberPreference(PureBlackKey, false)
 
@@ -199,10 +207,39 @@ fun TvSettingsScreen(accountViewModel: AccountSettingsViewModel = hiltViewModel(
         }
 
         item(key = "remote_header") { SettingsHeader(stringResource(R.string.remote_control)) }
+        if (pairing != null) {
+            item(key = "phone_remote") {
+                SettingRow(
+                    icon = R.drawable.smartphone,
+                    title = stringResource(R.string.tv_phone_remote),
+                    description = stringResource(R.string.tv_phone_remote_desc),
+                    onClick = {},
+                    modifier = Modifier.tvFocusMemory(focusMemory, "phone_remote"),
+                )
+            }
+            items(pairedDevices, key = { "device_${it.id}" }) { device ->
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    SettingRow(
+                        icon = R.drawable.smartphone,
+                        title = device.name,
+                        description = stringResource(R.string.tv_paired_on, dateFormat.format(Date(device.pairedAt))),
+                        onClick = {},
+                        modifier = Modifier.weight(1f).tvFocusMemory(focusMemory, "device_${device.id}"),
+                    )
+                    Spacer(Modifier.width(12.dp))
+                    TvButton(
+                        onClick = { coroutineScope.launch { pairing.revoke(device.id) } },
+                        icon = R.drawable.delete,
+                        text = stringResource(R.string.tv_forget_device),
+                        modifier = Modifier.tvFocusMemory(focusMemory, "forget_${device.id}"),
+                    )
+                }
+            }
+        }
         item(key = "remote") {
             SettingRow(
                 icon = R.drawable.language,
-                title = stringResource(R.string.remote_control),
+                title = stringResource(R.string.tv_browser_remote),
                 description =
                     when {
                         remoteUrl != null -> stringResource(R.string.tv_remote_control_url, remoteUrl)

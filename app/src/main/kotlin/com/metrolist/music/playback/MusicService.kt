@@ -235,6 +235,10 @@ import com.metrolist.music.playback.queues.YouTubeQueue
 import com.metrolist.music.playback.queues.YouTubePlaylistQueue
 import com.metrolist.music.playback.queues.filterExplicit
 import com.metrolist.music.playback.queues.filterVideoSongs
+import com.metrolist.music.playback.tv.TvAdvertiser
+import com.metrolist.music.playback.tv.TvPairing
+import com.metrolist.music.playback.tv.tvDeviceName
+import com.metrolist.music.ui.tv.isTvDevice
 import com.metrolist.music.constants.LoudnessLevel
 import com.metrolist.music.constants.LoudnessLevelKey
 import com.metrolist.music.utils.CoilBitmapLoader
@@ -611,6 +615,11 @@ class MusicService :
     private var cachedNewRadioAfterAddedSongs = false
     @Volatile
     private var remoteControlServer: RemoteControlServer? = null
+
+    /** TV mode: the remote server always runs so paired phones can find and control this TV. */
+    val isTv by lazy { isTvDevice() }
+    val tvPairing: TvPairing? by lazy { if (isTv) TvPairing(this, scope) else null }
+    private var tvAdvertiser: TvAdvertiser? = null
 
     // URL cache for stream URLs - class-level so it can be invalidated on errors
     private val songUrlCache = StreamUrlCache()
@@ -1325,16 +1334,26 @@ class MusicService :
                 .map { (it[RemoteControlEnabledKey] == true) to it[RemoteControlKeyKey].orEmpty() }
                 .distinctUntilChanged()
                 .collect { (enabled, key) ->
+                    val browserKey = key.takeIf { enabled && it.isNotEmpty() }
                     withContext(Dispatchers.IO) {
+                        tvAdvertiser?.unregister()
                         remoteControlServer?.stop()
+                        val pairing = tvPairing
+                        val tvId = pairing?.deviceId()
+                        val tvName = tvDeviceName()
                         remoteControlServer =
-                            if (enabled && key.isNotEmpty()) {
-                                runCatching { RemoteControlServer(this@MusicService, key).apply { start() } }
-                                    .onFailure { Timber.tag(TAG).e(it, "Remote control server failed to start") }
+                            if (browserKey != null || pairing != null) {
+                                runCatching {
+                                    RemoteControlServer(this@MusicService, browserKey, pairing, tvId, tvName).apply { start() }
+                                }.onFailure { Timber.tag(TAG).e(it, "Remote control server failed to start") }
                                     .getOrNull()
                             } else {
                                 null
                             }
+                        if (remoteControlServer != null && tvId != null) {
+                            tvAdvertiser = (tvAdvertiser ?: TvAdvertiser(this@MusicService))
+                                .apply { register(tvName, RemoteControlServer.PORT, tvId) }
+                        }
                     }
                 }
         }
@@ -4568,6 +4587,7 @@ class MusicService :
         }
         audioManager.unregisterAudioDeviceCallback(audioDeviceCallback)
         castConnectionHandler?.release()
+        tvAdvertiser?.unregister()
         remoteControlServer?.stop()
         if (dataStore.get(PersistentQueueKey, true)) {
             saveQueueToDisk()

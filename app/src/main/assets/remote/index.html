@@ -434,23 +434,46 @@ function tick() {
   $("pos").textContent = fmt(pos);
 }
 
+async function applyState(next) {
+  const prevIndex = state?.index;
+  state = next;
+  syncedAt = Date.now();
+  failures = 0;
+  if (state.queueHash !== lastHash) {
+    queue = await api("/api/queue");
+    lastHash = state.queueHash;
+    renderQueue();
+  } else if (state.index !== prevIndex) {
+    renderQueue();
+  }
+  render();
+}
+
+// The app pushes every state change over a WebSocket; polling is only the fallback
+let push = null;
+const pushing = () => push?.readyState === WebSocket.OPEN;
+function connectPush() {
+  if (push || document.hidden) return;
+  const scheme = location.protocol === "https:" ? "wss" : "ws";
+  try {
+    push = new WebSocket(`${scheme}://${location.host}/api/ws?key=${encodeURIComponent(KEY)}`);
+  } catch {
+    push = null;
+    return;
+  }
+  push.onmessage = (e) => applyState(JSON.parse(e.data)).catch(() => {});
+  push.onclose = () => {
+    push = null;
+    setTimeout(connectPush, 3000);
+  };
+}
+
 let polling = false;
 async function poll() {
-  if (polling) return;
+  if (polling || pushing()) return;
   polling = true;
   try {
-    const prevIndex = state?.index;
-    state = await api("/api/state");
-    syncedAt = Date.now();
-    failures = 0;
-    if (state.queueHash !== lastHash) {
-      queue = await api("/api/queue");
-      lastHash = state.queueHash;
-      renderQueue();
-    } else if (state.index !== prevIndex) {
-      renderQueue();
-    }
-    render();
+    await applyState(await api("/api/state"));
   } catch (e) {
     if (e.message === "bad-key") {
       snackbar("This link is invalid. Copy it again from MetroQueue settings");
@@ -537,10 +560,18 @@ document.addEventListener("keydown", (e) => {
   else if (e.shiftKey && e.key === "ArrowLeft") cmd("prev");
 });
 
-// Poll only while the page is visible so the phone stays idle otherwise
+// Poll only while the page is visible and nothing is pushed, so the phone stays idle otherwise
 setInterval(() => { if (!document.hidden) poll(); }, 1000);
 setInterval(tick, 250);
-document.addEventListener("visibilitychange", () => { if (!document.hidden) poll(); });
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) {
+    push?.close();
+  } else {
+    connectPush();
+    poll();
+  }
+});
+connectPush();
 poll();
 </script>
 </body>

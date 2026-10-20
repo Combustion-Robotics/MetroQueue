@@ -244,6 +244,13 @@ fun TvApp(
             }
         }
 
+        // A phone asking to pair shows its code above everything, including the overlays
+        val pairing = playerConnection?.service?.tvPairing
+        val pairingPrompt = pairing?.prompt?.collectAsStateWithLifecycle()?.value
+        if (pairing != null && pairingPrompt != null) {
+            TvPairingDialog(prompt = pairingPrompt, onCancel = pairing::cancel)
+        }
+
         // Back from a top-level screen first moves focus to the rail, then goes Home, then leaves the app.
         BackHandler(enabled = isTopLevel && (contentHasFocus || selectedTab != TvTab.HOME)) {
             if (contentHasFocus) {

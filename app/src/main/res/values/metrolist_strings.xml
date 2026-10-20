@@ -1107,4 +1107,12 @@
     <string name="tv_sign_in_desc">Sign in to see your playlists, likes and recommendations</string>
     <string name="tv_remote_control_url">Open %1$s in a browser on the same Wi-Fi to control playback from your phone</string>
     <string name="tv_remote_control_desc">Control playback from a phone or computer on the same Wi-Fi</string>
+    <string name="tv_browser_remote">Browser remote</string>
+    <string name="tv_phone_remote">Phone remote</string>
+    <string name="tv_phone_remote_desc">On your phone, open MetroQueue on the same Wi-Fi and tap the TV button in the player</string>
+    <string name="tv_paired_on">Paired on %1$s</string>
+    <string name="tv_forget_device">Forget</string>
+    <string name="tv_pair_title">Pair with %1$s?</string>
+    <string name="tv_pair_desc">Enter this code on your phone to control this TV</string>
+    <string name="tv_paired_with">Paired with %1$s</string>
 </resources>

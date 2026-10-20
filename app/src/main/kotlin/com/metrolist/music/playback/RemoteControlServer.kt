@@ -34,71 +34,122 @@ import com.metrolist.music.models.MediaMetadata
 import com.metrolist.music.models.toMediaMetadata
 import com.metrolist.music.playback.queues.ListQueue
 import com.metrolist.music.playback.queues.YouTubeQueue
+import com.metrolist.music.playback.tv.PairFinishRequest
+import com.metrolist.music.playback.tv.PairFinishResponse
+import com.metrolist.music.playback.tv.PairStartRequest
+import com.metrolist.music.playback.tv.RemoteState
+import com.metrolist.music.playback.tv.RemoteTrack
+import com.metrolist.music.playback.tv.TvInfo
+import com.metrolist.music.playback.tv.TvPairing
+import com.metrolist.music.playback.tv.toRemoteTrack
 import com.metrolist.music.ui.theme.DefaultThemeColor
 import com.metrolist.music.ui.theme.extractThemeColor
-import com.metrolist.music.ui.utils.resize
 import com.metrolist.music.utils.dataStore
 import com.metrolist.music.utils.get
 import io.ktor.http.ContentType
+import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.ApplicationCall
+import io.ktor.server.application.install
 import io.ktor.server.cio.CIO
 import io.ktor.server.engine.embeddedServer
+import io.ktor.server.request.receiveText
 import io.ktor.server.response.respond
 import io.ktor.server.response.respondText
 import io.ktor.server.routing.get
 import io.ktor.server.routing.post
 import io.ktor.server.routing.routing
+import io.ktor.server.websocket.WebSockets
+import io.ktor.server.websocket.webSocket
+import io.ktor.websocket.CloseReason
+import io.ktor.websocket.Frame
+import io.ktor.websocket.close
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.net.Inet4Address
+import java.net.Inet6Address
+import java.net.InetAddress
 import java.net.NetworkInterface
 import java.security.MessageDigest
 import java.util.concurrent.ConcurrentHashMap
 
-@Serializable
-data class RemoteTrack(
-    val id: String,
-    val title: String,
-    val artist: String,
-    val art: String?,
-    val duration: Long,
-    val pick: Boolean = false,
-)
-
-@Serializable
-data class RemoteState(
-    val track: RemoteTrack?,
-    val playing: Boolean,
-    val position: Long,
-    val duration: Long,
-    val shuffle: Boolean,
-    val repeat: Int,
-    val volume: Float,
-    val queueTitle: String?,
-    val index: Int,
-    val queueHash: Int,
-)
-
-/** LAN web remote: serves assets/remote/index.html and a small JSON API guarded by [key]. */
+/**
+ * LAN remote: serves assets/remote/index.html and a small JSON API. Browsers authenticate with
+ * [browserKey] (`?key=`); phones paired through [pairing] (TV only) send their token as a bearer
+ * token. `/api/ws` pushes the player state whenever it changes, so clients don't poll.
+ */
 class RemoteControlServer(
     private val service: MusicService,
-    private val key: String,
+    private val browserKey: String?,
+    private val pairing: TvPairing?,
+    private val tvId: String? = null,
+    private val tvName: String? = null,
 ) {
-    private val json = Json { encodeDefaults = true }
+    private val json = Json {
+        encodeDefaults = true
+        ignoreUnknownKeys = true
+    }
     private val searchResults = ConcurrentHashMap<String, MediaMetadata>()
     @Volatile
     private var themeCache: Pair<String?, Map<String, Map<String, String>>>? = null
     private val page by lazy { service.assets.open("remote/index.html").bufferedReader().use { it.readText() } }
 
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+    private val stateVersion = MutableStateFlow(0L)
+    private val playerListener =
+        object : Player.Listener {
+            override fun onEvents(
+                player: Player,
+                events: Player.Events,
+            ) {
+                if (events.containsAny(*PUSHED_EVENTS)) stateVersion.value++
+            }
+        }
+
     private val server =
         embeddedServer(CIO, port = PORT) {
+            install(WebSockets) {
+                pingPeriodMillis = 15_000L
+                timeoutMillis = 30_000L
+            }
             routing {
                 get("/") {
                     if (call.authorized()) call.respondText(page, ContentType.Text.Html)
+                }
+                get("/api/info") {
+                    if (!call.fromLan() || tvId == null) return@get call.respond(HttpStatusCode.NotFound)
+                    call.respondJson(json.encodeToString(TvInfo(id = tvId, name = tvName.orEmpty(), paired = call.hasPairedToken())))
+                }
+                post("/api/pair/start") {
+                    val pairing = pairing
+                    if (!call.fromLan() || pairing == null) return@post call.respond(HttpStatusCode.NotFound)
+                    val request = runCatching { json.decodeFromString<PairStartRequest>(call.receiveText()) }.getOrNull()
+                        ?: return@post call.respond(HttpStatusCode.BadRequest)
+                    call.respond(if (pairing.start(request.name)) HttpStatusCode.NoContent else HttpStatusCode.TooManyRequests)
+                }
+                post("/api/pair/finish") {
+                    val pairing = pairing
+                    if (!call.fromLan() || pairing == null || tvId == null) return@post call.respond(HttpStatusCode.NotFound)
+                    val request = runCatching { json.decodeFromString<PairFinishRequest>(call.receiveText()) }.getOrNull()
+                        ?: return@post call.respond(HttpStatusCode.BadRequest)
+                    when (val result = pairing.finish(request.code, request.name)) {
+                        is TvPairing.Result.Paired ->
+                            call.respondJson(json.encodeToString(PairFinishResponse(result.token, tvId, tvName.orEmpty())))
+                        TvPairing.Result.WrongCode -> call.respond(HttpStatusCode.Unauthorized)
+                        TvPairing.Result.Expired -> call.respond(HttpStatusCode.Gone)
+                        TvPairing.Result.Locked -> call.respond(HttpStatusCode.TooManyRequests)
+                    }
                 }
                 get("/api/state") {
                     if (call.authorized()) call.respondJson(json.encodeToString(onMain { state() }))
@@ -119,7 +170,7 @@ class RemoteControlServer(
                             ?.map { it.toMediaMetadata() }
                             .orEmpty()
                     songs.forEach { searchResults[it.id] = it }
-                    call.respondJson(json.encodeToString(songs.map { it.toRemote() }))
+                    call.respondJson(json.encodeToString(songs.map { it.toRemoteTrack() }))
                 }
                 post("/api/cmd") {
                     if (!call.authorized()) return@post
@@ -135,20 +186,86 @@ class RemoteControlServer(
                         }
                     call.respond(if (ok) HttpStatusCode.NoContent else HttpStatusCode.BadRequest)
                 }
+                webSocket("/api/ws") {
+                    if (!call.hasAccess()) {
+                        close(CloseReason(CloseReason.Codes.VIOLATED_POLICY, "forbidden"))
+                        return@webSocket
+                    }
+                    // Re-checked when paired devices change, so revoking a phone drops its connection
+                    val devices: Flow<Any> = pairing?.devices ?: flowOf(Unit)
+                    val push =
+                        launch {
+                            runCatching {
+                                combine(stateVersion, devices) { version, _ -> version }.collect {
+                                    if (!call.hasAccess()) {
+                                        close(CloseReason(CloseReason.Codes.VIOLATED_POLICY, "revoked"))
+                                        return@collect
+                                    }
+                                    send(Frame.Text(json.encodeToString(onMain { state() })))
+                                    // Lets bursts of player events collapse into one update
+                                    delay(PUSH_COALESCE_MS)
+                                }
+                            }
+                        }
+                    try {
+                        for (frame in incoming) Unit
+                    } finally {
+                        push.cancel()
+                    }
+                }
             }
         }
 
     fun start() {
         server.start(wait = false)
+        scope.launch {
+            var attached: Player? = null
+            try {
+                service.playerFlow.collect { player ->
+                    attached?.removeListener(playerListener)
+                    attached = player
+                    player?.addListener(playerListener)
+                    stateVersion.value++
+                }
+            } finally {
+                attached?.removeListener(playerListener)
+            }
+        }
+        scope.launch { service.playerVolume.collect { stateVersion.value++ } }
     }
 
     fun stop() {
+        scope.cancel()
         server.stop(gracePeriodMillis = 0, timeoutMillis = 500)
     }
 
+    private fun ApplicationCall.fromLan(): Boolean {
+        val ip = request.local.remoteAddress
+        // Only parse literal addresses; anything else would trigger a DNS lookup
+        if (ip.isEmpty() || !(ip[0].isDigit() || ':' in ip)) return false
+        val address = runCatching { InetAddress.getByName(ip) }.getOrNull() ?: return false
+        return address.isLoopbackAddress ||
+            address.isSiteLocalAddress ||
+            address.isLinkLocalAddress ||
+            // IPv6 unique local addresses, fc00::/7
+            (address is Inet6Address && (address.address[0].toInt() and 0xFE) == 0xFC)
+    }
+
+    private suspend fun ApplicationCall.hasPairedToken(): Boolean {
+        val token = request.headers[HttpHeaders.Authorization]?.removePrefix("Bearer")?.trim().orEmpty()
+        return pairing?.isAuthorized(token) == true
+    }
+
+    private suspend fun ApplicationCall.hasAccess(): Boolean {
+        if (!fromLan()) return false
+        val key = browserKey?.takeIf { it.isNotEmpty() }
+        val given = request.queryParameters["key"]
+        if (key != null && given != null && MessageDigest.isEqual(given.toByteArray(), key.toByteArray())) return true
+        return hasPairedToken()
+    }
+
     private suspend fun ApplicationCall.authorized(): Boolean {
-        val given = request.queryParameters["key"].orEmpty()
-        if (MessageDigest.isEqual(given.toByteArray(), key.toByteArray())) return true
+        if (hasAccess()) return true
         respond(HttpStatusCode.Forbidden)
         return false
     }
@@ -157,18 +274,6 @@ class RemoteControlServer(
 
     // ExoPlayer may only be touched from the main thread
     private suspend fun <T> onMain(block: () -> T): T = withContext(Dispatchers.Main) { block() }
-
-    private fun MediaMetadata.toRemote(
-        pick: Boolean = false,
-        artSize: Int = 120,
-    ) = RemoteTrack(
-        id = id,
-        title = title,
-        artist = artists.joinToString { it.name },
-        art = thumbnailUrl?.resize(artSize, artSize),
-        duration = duration * 1000L,
-        pick = pick,
-    )
 
     // Same Material 3 scheme the app builds from the artwork (see MainActivity / MetrolistTheme)
     private suspend fun theme(artUrl: String?): Map<String, Map<String, String>> {
@@ -218,13 +323,13 @@ class RemoteControlServer(
     }
 
     private fun queue(): List<RemoteTrack> =
-        service.player.getQueueWindows().map { it.mediaItem.metadata!!.toRemote(pick = it.mediaItem.isUserPick) }
+        service.player.getQueueWindows().map { it.mediaItem.metadata!!.toRemoteTrack(pick = it.mediaItem.isUserPick) }
 
     private fun state(): RemoteState {
         val player = service.player
         val windows = player.getQueueWindows()
         return RemoteState(
-            track = player.currentMetadata?.toRemote(artSize = 720),
+            track = player.currentMetadata?.toRemoteTrack(artSize = 720),
             playing = player.playWhenReady,
             position = player.currentPosition,
             duration = player.duration.takeIf { it != C.TIME_UNSET } ?: 0L,
@@ -234,6 +339,8 @@ class RemoteControlServer(
             queueTitle = service.queueTitle,
             index = player.getCurrentQueueIndex(),
             queueHash = windows.map { it.uid to it.mediaItem.isUserPick }.hashCode(),
+            playbackState = player.playbackState,
+            speed = player.playbackParameters.speed,
         )
     }
 
@@ -253,6 +360,8 @@ class RemoteControlServer(
 
         when (action) {
             "toggle" -> player.togglePlayPause()
+            "resume" -> player.resume()
+            "pause" -> player.pause()
             "next" -> {
                 player.seekToNext()
                 player.resume()
@@ -265,9 +374,15 @@ class RemoteControlServer(
             "volume" -> service.playerVolume.value = (a / 100f).coerceIn(0f, 1f)
             "shuffle" -> player.shuffleModeEnabled = !player.shuffleModeEnabled
             "repeat" -> player.toggleRepeatMode()
+            "setShuffle" -> player.shuffleModeEnabled = a != 0L
+            "setRepeat" -> player.repeatMode = a.toInt().coerceIn(Player.REPEAT_MODE_OFF, Player.REPEAT_MODE_ALL)
             "clear" -> service.clearQueue()
             "jump" -> {
                 player.seekToDefaultPosition(mediaIndex ?: return false)
+                player.resume()
+            }
+            "jumpTo" -> {
+                player.seekTo(mediaIndex ?: return false, b.coerceAtLeast(0L))
                 player.resume()
             }
             "remove" -> player.removeMediaItem(mediaIndex ?: return false)
@@ -308,6 +423,18 @@ class RemoteControlServer(
 
     companion object {
         const val PORT = 8642
+        private const val PUSH_COALESCE_MS = 100L
+        private val PUSHED_EVENTS =
+            intArrayOf(
+                Player.EVENT_PLAY_WHEN_READY_CHANGED,
+                Player.EVENT_PLAYBACK_STATE_CHANGED,
+                Player.EVENT_MEDIA_ITEM_TRANSITION,
+                Player.EVENT_TIMELINE_CHANGED,
+                Player.EVENT_POSITION_DISCONTINUITY,
+                Player.EVENT_SHUFFLE_MODE_ENABLED_CHANGED,
+                Player.EVENT_REPEAT_MODE_CHANGED,
+                Player.EVENT_PLAYBACK_PARAMETERS_CHANGED,
+            )
 
         /** The phone's LAN address, e.g. http://192.168.1.23:8642/?key=..., or null when not on a network. */
         fun url(key: String): String? =
