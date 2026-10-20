@@ -201,6 +201,8 @@ import com.metrolist.music.ui.screens.mix.TransitionEditorHost
 import com.metrolist.music.ui.theme.ColorSaver
 import com.metrolist.music.ui.theme.DefaultThemeColor
 import com.metrolist.music.ui.theme.MetrolistTheme
+import com.metrolist.music.ui.tv.TvApp
+import com.metrolist.music.ui.tv.isTvDevice
 import com.metrolist.music.ui.theme.extractThemeColor
 import com.metrolist.music.ui.utils.appBarScrollBehavior
 import com.metrolist.music.ui.utils.resetHeightOffset
@@ -271,6 +273,7 @@ class MainActivity : FragmentActivity() {
     private var pendingIntent: Intent? = null
     private var pendingVoiceQuery: String? = null
     private var latestVersionName by mutableStateOf(BuildConfig.BASE_VERSION_NAME)
+    private val isTv by lazy { isTvDevice() }
 
     // Keep PlayerConnection as regular property - NOT mutableStateOf to prevent UI recomposition
     // when it becomes null during onStop. Only update the snapshot for Compose when needed.
@@ -389,6 +392,10 @@ class MainActivity : FragmentActivity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
+        if (isTv) {
+            handlePlayFromSearchIntent(intent)
+            return
+        }
         if (::navController.isInitialized) {
             handleWidgetTargetIntent(intent, navController)
             handlePlayFromSearchIntent(intent)
@@ -680,6 +687,23 @@ class MainActivity : FragmentActivity() {
                         themeColor = selectedThemeColor
                     }
                 }
+        }
+
+        if (isTv) {
+            LaunchedEffect(Unit) {
+                handlePlayFromSearchIntent(pendingIntent ?: intent)
+                pendingIntent = null
+            }
+            // TVs are always dark; the artwork-driven theme colour still applies
+            MetrolistTheme(darkTheme = true, pureBlack = pureBlackEnabled, themeColor = themeColor) {
+                TvApp(
+                    playerConnection = playerConnection,
+                    database = database,
+                    downloadUtil = downloadUtil,
+                    syncUtils = syncUtils,
+                )
+            }
+            return
         }
 
         MetrolistTheme(
