@@ -44,6 +44,7 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.focusRestorer
@@ -54,6 +55,7 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
@@ -134,6 +136,9 @@ fun TvApp(
 
     val selectedRailItem = remember { FocusRequester() }
     var contentHasFocus by remember { mutableStateOf(false) }
+    // Whether Back (rather than the D-pad) put focus on the rail; Back from there leaves the tab
+    var railFromBack by remember { mutableStateOf(false) }
+    val focusManager = LocalFocusManager.current
     // Something must hold focus for the D-pad to work; screens move it into their content once loaded
     LaunchedEffect(Unit) {
         withFrameNanos { }
@@ -172,7 +177,10 @@ fun TvApp(
                     Modifier
                         .fillMaxSize()
                         .padding(start = TvDimens.RailWidth)
-                        .onFocusChanged { contentHasFocus = it.hasFocus }
+                        .onFocusChanged {
+                            contentHasFocus = it.hasFocus
+                            if (it.hasFocus) railFromBack = false
+                        }
                         .focusRestorer(FocusRequester.Default),
             ) {
                 NavHost(
@@ -256,11 +264,16 @@ fun TvApp(
         }
 
         // Back from a top-level screen first moves focus to the rail, then goes Home, then leaves the app.
-        BackHandler(enabled = isTopLevel && (contentHasFocus || selectedTab != TvTab.HOME)) {
-            if (contentHasFocus) {
-                runCatching { selectedRailItem.requestFocus() }
-            } else {
-                selectTab(TvTab.HOME)
+        // From a rail reached with the D-pad, Back returns to the screen instead, like pressing Right.
+        BackHandler(enabled = isTopLevel && (contentHasFocus || !railFromBack || selectedTab != TvTab.HOME)) {
+            when {
+                contentHasFocus -> {
+                    railFromBack = true
+                    runCatching { selectedRailItem.requestFocus() }
+                }
+                !railFromBack && focusManager.moveFocus(FocusDirection.Right) -> Unit
+                selectedTab != TvTab.HOME -> selectTab(TvTab.HOME)
+                else -> railFromBack = true
             }
         }
     }

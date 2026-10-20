@@ -13,40 +13,59 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -71,11 +90,12 @@ fun TvSearchScreen(viewModel: OnlineSearchSuggestionViewModel = hiltViewModel())
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     val pauseSearchHistory by rememberPreference(PauseSearchHistoryKey, defaultValue = false)
-    var query by rememberSaveable { mutableStateOf("") }
+    var query by rememberSaveable(stateSaver = TextFieldValue.Saver) { mutableStateOf(TextFieldValue()) }
+    val barState = remember { TvSearchBarState() }
     val viewState by viewModel.viewState.collectAsStateWithLifecycle()
     val focusMemory = rememberTvFocusMemory()
 
-    LaunchedEffect(query) { viewModel.query.value = query.trim() }
+    LaunchedEffect(query.text) { viewModel.query.value = query.text.trim() }
 
     val submit: (String) -> Unit = { raw ->
         val text = raw.trim()
@@ -97,7 +117,7 @@ fun TvSearchScreen(viewModel: OnlineSearchSuggestionViewModel = hiltViewModel())
                     ?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
                     ?.firstOrNull()
             if (!spoken.isNullOrBlank()) {
-                query = spoken
+                query = TextFieldValue(spoken, TextRange(spoken.length))
                 submit(spoken)
             }
         }
@@ -123,21 +143,11 @@ fun TvSearchScreen(viewModel: OnlineSearchSuggestionViewModel = hiltViewModel())
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.fillMaxWidth().padding(start = TvDimens.SafeHorizontal / 2, end = TvDimens.SafeHorizontal),
             ) {
-                OutlinedTextField(
+                TvSearchBar(
                     value = query,
                     onValueChange = { query = it },
-                    singleLine = true,
-                    placeholder = { Text(stringResource(R.string.search_yt_music)) },
-                    leadingIcon = { Icon(painterResource(R.drawable.search), contentDescription = null) },
-                    textStyle = MaterialTheme.typography.titleLarge,
-                    shape = RoundedCornerShape(28.dp),
-                    colors =
-                        OutlinedTextFieldDefaults.colors(
-                            focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
-                            unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-                        ),
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                    keyboardActions = KeyboardActions(onSearch = { submit(query) }),
+                    onSearch = submit,
+                    state = barState,
                     modifier =
                         Modifier
                             .weight(1f)
@@ -155,7 +165,7 @@ fun TvSearchScreen(viewModel: OnlineSearchSuggestionViewModel = hiltViewModel())
         }
 
         val chips =
-            if (query.isBlank()) {
+            if (query.text.isBlank()) {
                 viewState.history.map { it.query }
             } else {
                 viewState.suggestions
@@ -169,10 +179,10 @@ fun TvSearchScreen(viewModel: OnlineSearchSuggestionViewModel = hiltViewModel())
                     items(chips, key = { it }) { chip ->
                         TvButton(
                             onClick = {
-                                query = chip
+                                query = TextFieldValue(chip, TextRange(chip.length))
                                 submit(chip)
                             },
-                            icon = if (query.isBlank()) R.drawable.history else R.drawable.search,
+                            icon = if (query.text.isBlank()) R.drawable.history else R.drawable.search,
                             text = chip,
                             modifier = Modifier.tvFocusMemory(focusMemory, "chip/$chip"),
                         )
@@ -251,6 +261,125 @@ fun TvSearchResultScreen(viewModel: OnlineSearchViewModel = hiltViewModel()) {
                             ),
                 )
             }
+        }
+    }
+}
+
+/** Whether a [TvSearchBar]'s text field is being edited (focused, with the keyboard up). */
+@Stable
+class TvSearchBarState {
+    var editing by mutableStateOf(false)
+}
+
+/**
+ * Search box for the D-pad. Focus normally rests on the bar itself; its text field only becomes
+ * focusable (bringing up the keyboard) once the bar is selected. Back, the keyboard closing or moving
+ * away ends editing and returns focus to the bar, so the keyboard never opens on focus alone.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun TvSearchBar(
+    value: TextFieldValue,
+    onValueChange: (TextFieldValue) -> Unit,
+    onSearch: (String) -> Unit,
+    state: TvSearchBarState,
+    modifier: Modifier = Modifier,
+) {
+    val barRequester = remember { FocusRequester() }
+    val fieldRequester = remember { FocusRequester() }
+    val keyboard = LocalSoftwareKeyboardController.current
+    var fieldFocused by remember { mutableStateOf(false) }
+    val stopEditing: () -> Unit = {
+        if (state.editing) {
+            barRequester.requestFocus()
+            state.editing = false
+        }
+    }
+
+    // Editing can also be started from outside (e.g. "New search")
+    LaunchedEffect(state.editing) {
+        if (state.editing && !fieldFocused) {
+            withFrameNanos { }
+            fieldRequester.requestFocus()
+            keyboard?.show()
+        }
+    }
+
+    // Some keyboards swallow Back to hide themselves; treat the keyboard going away as the end of editing
+    val imeVisible = WindowInsets.isImeVisible
+    var imeSeen by remember { mutableStateOf(false) }
+    LaunchedEffect(state.editing, imeVisible) {
+        when {
+            !state.editing -> imeSeen = false
+            imeVisible -> imeSeen = true
+            imeSeen -> stopEditing()
+        }
+    }
+
+    TvSurface(
+        onClick = {
+            if (!state.editing) {
+                // Select the old query so typing replaces it
+                onValueChange(value.copy(selection = TextRange(0, value.text.length)))
+                state.editing = true
+            }
+            fieldRequester.requestFocus()
+            keyboard?.show()
+        },
+        modifier = modifier.height(64.dp).focusRequester(barRequester),
+        shape = RoundedCornerShape(32.dp),
+        containerColor =
+            if (state.editing) MaterialTheme.colorScheme.surfaceContainerHighest else MaterialTheme.colorScheme.surfaceContainerHigh,
+        focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+        focusedContentColor = MaterialTheme.colorScheme.onSurface,
+        focusedScale = 1.02f,
+        focusBorder = true,
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp),
+        ) {
+            Icon(painterResource(R.drawable.search), contentDescription = null, modifier = Modifier.size(28.dp))
+            Spacer(Modifier.width(16.dp))
+            BasicTextField(
+                value = value,
+                onValueChange = onValueChange,
+                singleLine = true,
+                textStyle = MaterialTheme.typography.titleLarge.copy(color = MaterialTheme.colorScheme.onSurface),
+                cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                keyboardActions =
+                    KeyboardActions(onSearch = {
+                        stopEditing()
+                        onSearch(value.text)
+                    }),
+                decorationBox = { innerTextField ->
+                    Box(contentAlignment = Alignment.CenterStart) {
+                        if (value.text.isEmpty()) {
+                            Text(
+                                text = stringResource(R.string.search_yt_music),
+                                style = MaterialTheme.typography.titleLarge,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                            )
+                        }
+                        innerTextField()
+                    }
+                },
+                modifier =
+                    Modifier
+                        .weight(1f)
+                        .focusRequester(fieldRequester)
+                        .focusProperties { canFocus = state.editing }
+                        .onFocusChanged {
+                            if (fieldFocused && !it.isFocused) state.editing = false
+                            fieldFocused = it.isFocused
+                        }.onPreviewKeyEvent { event ->
+                            if (event.key != Key.Back) return@onPreviewKeyEvent false
+                            if (event.type == KeyEventType.KeyUp) stopEditing()
+                            true
+                        },
+            )
         }
     }
 }
