@@ -1097,7 +1097,7 @@
     <string name="tv_voice_search">Voice search</string>
     <string name="tv_voice_search_unavailable">Voice search isn\'t available on this device</string>
     <string name="tv_top_matches">Top matches</string>
-    <string name="tv_search_results">Results for \"%1$s\"</string>
+    <string name="tv_new_search">New search</string>
     <string name="tv_up_next">Up next</string>
     <string name="tv_move_up">Move up</string>
     <string name="tv_move_down">Move down</string>

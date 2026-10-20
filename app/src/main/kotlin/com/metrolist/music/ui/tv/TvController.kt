@@ -30,6 +30,7 @@ import com.metrolist.music.playback.PlayerConnection
 import com.metrolist.music.playback.queues.ListQueue
 import com.metrolist.music.playback.queues.Queue
 import com.metrolist.music.playback.queues.YouTubeQueue
+import com.metrolist.music.utils.SearchRoutes
 
 /** UI state shared by the TV screens: navigation, the Now Playing / Queue overlays and playback entry points. */
 @Stable
@@ -44,6 +45,11 @@ class TvController(
 
     fun navigate(route: String) {
         navController.navigate(route) { launchSingleTop = true }
+    }
+
+    /** Opens the results for [query], replacing earlier results so Back goes to the search screen. */
+    fun showSearchResults(query: String) {
+        navController.navigate(SearchRoutes.resultRoute(query)) { popUpTo("search") }
     }
 
     /** Starts [queue] and brings up Now Playing, like the TV apps users know. */
