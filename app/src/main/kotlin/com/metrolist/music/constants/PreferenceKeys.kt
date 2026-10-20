@@ -151,6 +151,7 @@ val StopMusicOnTaskClearKey = booleanPreferencesKey("stopMusicOnTaskClear")
 val ShufflePlaylistFirstKey = booleanPreferencesKey("shufflePlaylistFirst")
 val PreventDuplicateTracksInQueueKey = booleanPreferencesKey("preventDuplicateTracksInQueue")
 val PrioritizeAddedSongsKey = booleanPreferencesKey("prioritizeAddedSongs")
+const val DEFAULT_PRIORITIZE_ADDED_SONGS = true
 val NewRadioAfterAddedSongsKey = booleanPreferencesKey("newRadioAfterAddedSongs")
 val RemoteControlEnabledKey = booleanPreferencesKey("remoteControlEnabled")
 val RemoteControlKeyKey = stringPreferencesKey("remoteControlKey")

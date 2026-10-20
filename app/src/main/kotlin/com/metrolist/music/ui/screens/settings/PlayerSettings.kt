@@ -52,6 +52,7 @@ import com.metrolist.music.constants.DEFAULT_CROSSFADE_GAPLESS
 import com.metrolist.music.constants.DEFAULT_CROSSFADE_ON_SKIP
 import com.metrolist.music.constants.DEFAULT_MIX_MODE
 import com.metrolist.music.constants.DEFAULT_MIX_TRANSITION_STYLE
+import com.metrolist.music.constants.DEFAULT_PRIORITIZE_ADDED_SONGS
 import com.metrolist.music.constants.AutoLoadMoreKey
 import com.metrolist.music.constants.AutoRadioQueueKey
 import com.metrolist.music.constants.AutoSkipNextOnErrorKey
@@ -231,7 +232,7 @@ fun PlayerSettings(
     )
     val (prioritizeAddedSongs, onPrioritizeAddedSongsChange) = rememberPreference(
         PrioritizeAddedSongsKey,
-        defaultValue = false
+        defaultValue = DEFAULT_PRIORITIZE_ADDED_SONGS
     )
     val (newRadioAfterAddedSongs, onNewRadioAfterAddedSongsChange) = rememberPreference(
         NewRadioAfterAddedSongsKey,

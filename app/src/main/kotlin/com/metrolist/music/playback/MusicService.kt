@@ -122,6 +122,7 @@ import com.metrolist.music.constants.DEFAULT_CROSSFADE_DURATION
 import com.metrolist.music.constants.DEFAULT_CROSSFADE_GAPLESS
 import com.metrolist.music.constants.DEFAULT_CROSSFADE_ON_SKIP
 import com.metrolist.music.constants.DEFAULT_MIX_TRANSITION_STYLE
+import com.metrolist.music.constants.DEFAULT_PRIORITIZE_ADDED_SONGS
 import com.metrolist.music.constants.DisableLoadMoreWhenRepeatAllKey
 import com.metrolist.music.constants.DiscordActivityNameKey
 import com.metrolist.music.constants.DiscordActivityTypeKey
@@ -606,7 +607,7 @@ class MusicService :
     @Volatile
     private var cachedAutoLoadMore = true
     @Volatile
-    private var cachedPrioritizeAddedSongs = false
+    private var cachedPrioritizeAddedSongs = DEFAULT_PRIORITIZE_ADDED_SONGS
     @Volatile
     private var cachedNewRadioAfterAddedSongs = false
     @Volatile
@@ -1315,7 +1316,7 @@ class MusicService :
             dataStore.data.map { it[AutoLoadMoreKey] ?: true }.distinctUntilChanged().collect { cachedAutoLoadMore = it }
         }
         scope.launch {
-            dataStore.data.map { it[PrioritizeAddedSongsKey] ?: false }.distinctUntilChanged().collect { cachedPrioritizeAddedSongs = it }
+            dataStore.data.map { it[PrioritizeAddedSongsKey] ?: DEFAULT_PRIORITIZE_ADDED_SONGS }.distinctUntilChanged().collect { cachedPrioritizeAddedSongs = it }
         }
         scope.launch {
             dataStore.data.map { it[NewRadioAfterAddedSongsKey] ?: false }.distinctUntilChanged().collect { cachedNewRadioAfterAddedSongs = it }
