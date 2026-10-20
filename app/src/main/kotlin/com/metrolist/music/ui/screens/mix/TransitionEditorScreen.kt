@@ -74,6 +74,7 @@ import androidx.core.view.WindowCompat
 import androidx.media3.common.C
 import androidx.media3.common.Player
 import coil3.compose.AsyncImage
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.metrolist.music.LocalPlayerConnection
 import com.metrolist.music.R
 import com.metrolist.music.constants.CrossfadeDurationKey
@@ -130,6 +131,16 @@ val LocalTransitionEditorState = compositionLocalOf { TransitionEditorState() }
 fun TransitionEditorHost() {
     val state = LocalTransitionEditorState.current
     val (from, to) = state.songs ?: return
+    // The editor previews on the local player, so it isn't offered while playing on a TV
+    val playingOnTv = LocalPlayerConnection.current?.isRemote?.collectAsStateWithLifecycle()?.value == true
+    if (playingOnTv) {
+        val context = LocalContext.current
+        LaunchedEffect(from.id, to.id) {
+            Toast.makeText(context, R.string.tv_transition_editor_unavailable, Toast.LENGTH_SHORT).show()
+            state.dismiss()
+        }
+        return
+    }
     key(from.id, to.id) {
         TransitionEditor(from, to, state::dismiss)
     }

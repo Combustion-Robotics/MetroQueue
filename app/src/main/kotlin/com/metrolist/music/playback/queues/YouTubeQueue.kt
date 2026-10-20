@@ -16,10 +16,12 @@ import kotlinx.coroutines.withContext
 class YouTubeQueue(
     private var endpoint: WatchEndpoint,
     override val preloadItem: MediaMetadata? = null,
+    // Set when continuing a queue handed over from another device, so nextPage() picks up there
+    private var continuation: String? = null,
 ) : Queue {
     val isRadio: Boolean get() = endpoint.playlistId?.startsWith("RD") == true
-
-    private var continuation: String? = null
+    val currentEndpoint: WatchEndpoint get() = endpoint
+    val currentContinuation: String? get() = continuation
     private var retryCount = 0
     private val maxRetries = 3
 

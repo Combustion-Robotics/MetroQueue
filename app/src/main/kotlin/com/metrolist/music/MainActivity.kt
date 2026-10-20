@@ -73,6 +73,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.contentColorFor
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -957,7 +958,9 @@ class MainActivity : FragmentActivity() {
                     }
                 }
 
-                LaunchedEffect(activePlayerConnection) {
+                // Re-run when playback moves to or from a TV, whose player replaces the local one
+                val playingOnTv = activePlayerConnection?.isRemote?.collectAsState()?.value == true
+                LaunchedEffect(activePlayerConnection, playingOnTv) {
                     val player = runCatching { activePlayerConnection?.player }.getOrNull()
                     if (player?.currentMediaItem == null) {
                         if (!playerBottomSheetState.isDismissed) {
@@ -971,7 +974,7 @@ class MainActivity : FragmentActivity() {
                     }
                 }
 
-                DisposableEffect(activePlayerConnection, playerBottomSheetState) {
+                DisposableEffect(activePlayerConnection, playerBottomSheetState, playingOnTv) {
                     val player = runCatching { activePlayerConnection?.player }.getOrNull()
                         ?: return@DisposableEffect onDispose { }
                     val listener =

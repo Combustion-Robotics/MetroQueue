@@ -43,6 +43,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.ShuffleOrder.DefaultShuffleOrder
 import com.metrolist.music.R
 import com.metrolist.music.extensions.metadata
@@ -68,7 +69,7 @@ fun TvQueue(playerConnection: PlayerConnection) {
     ) {
         if (to !in queueWindows.indices) return
         val player = playerConnection.player
-        if (!player.shuffleModeEnabled) {
+        if (!player.shuffleModeEnabled || player !is ExoPlayer) {
             player.moveMediaItem(from, to)
         } else {
             // In shuffle mode the list shows the shuffle order, so reorder that instead of the items

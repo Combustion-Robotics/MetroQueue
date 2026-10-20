@@ -921,8 +921,10 @@ fun BottomSheetPlayer(
             if (!isListenTogetherGuest) {
                 {
                     playerConnection.service.clearAutomix()
-                    playerConnection.player.stop()
-                    playerConnection.player.clearMediaItems()
+                    // Dismissing leaves a TV playing and only clears this phone's player
+                    playerConnection.service.tvRemote.leave()
+                    playerConnection.localPlayer.stop()
+                    playerConnection.localPlayer.clearMediaItems()
                 }
             } else {
                 null

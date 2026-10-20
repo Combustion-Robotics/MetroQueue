@@ -40,8 +40,8 @@ import java.security.MessageDigest
 import java.security.SecureRandom
 import java.util.UUID
 
-/** The name phones see for this TV, e.g. "Living room TV". */
-fun Context.tvDeviceName(): String =
+/** This device's user-visible name, e.g. "Living room TV", shown to the other side when pairing. */
+fun Context.deviceName(): String =
     runCatching { Settings.Global.getString(contentResolver, Settings.Global.DEVICE_NAME) }.getOrNull()
         ?.takeIf { it.isNotBlank() }
         ?: Build.MODEL

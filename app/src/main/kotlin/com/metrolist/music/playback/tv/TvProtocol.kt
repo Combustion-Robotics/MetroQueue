@@ -5,6 +5,7 @@
 
 package com.metrolist.music.playback.tv
 
+import com.metrolist.innertube.models.WatchEndpoint
 import com.metrolist.music.models.MediaMetadata
 import com.metrolist.music.ui.utils.resize
 import kotlinx.serialization.Serializable
@@ -92,6 +93,45 @@ data class PairedDevice(
     val name: String,
     val tokenHash: String,
     val pairedAt: Long,
+)
+
+/**
+ * A queue moving between devices. With [items] it is played as is, continuing the radio from
+ * [endpoint] + [continuation] when given; with no items the receiver resolves [endpoint] itself.
+ */
+@Serializable
+data class QueueSnapshot(
+    val title: String? = null,
+    val items: List<RemoteTrack> = emptyList(),
+    val index: Int = 0,
+    val position: Long = 0L,
+    val playing: Boolean = true,
+    val endpoint: WatchEndpoint? = null,
+    val continuation: String? = null,
+    val preload: RemoteTrack? = null,
+)
+
+@Serializable
+data class RemoteItemsRequest(
+    val items: List<RemoteTrack>,
+    val mode: String,
+    val index: Int = -1,
+) {
+    companion object {
+        const val MODE_NEXT = "next"
+        const val MODE_ADD = "add"
+        const val MODE_AT = "at"
+    }
+}
+
+/** A TV this phone paired with; [host] is where it was last seen. */
+@Serializable
+data class PairedTv(
+    val id: String,
+    val name: String,
+    val token: String,
+    val host: String,
+    val port: Int,
 )
 
 fun MediaMetadata.toRemoteTrack(

@@ -82,6 +82,8 @@ import com.metrolist.music.LocalDownloadUtil
 import com.metrolist.music.LocalListenTogetherManager
 import com.metrolist.music.LocalPlayerConnection
 import com.metrolist.music.R
+import com.metrolist.music.playback.tv.TvRemoteManager
+import com.metrolist.music.playback.tv.TvRemotePlayer
 import com.metrolist.music.constants.ListItemHeight
 import com.metrolist.music.constants.VarispeedKey
 import com.metrolist.music.listentogether.ConnectionState
@@ -104,6 +106,7 @@ import kotlinx.coroutines.launch
 import kotlin.math.log2
 import kotlin.math.pow
 import kotlin.math.round
+import kotlin.math.roundToInt
 
 @Composable
 fun PlayerMenu(
@@ -133,6 +136,10 @@ fun PlayerMenu(
     val isCasting by castHandler?.isCasting?.collectAsStateWithLifecycle() ?: remember { mutableStateOf(false) }
     val castVolume by castHandler?.castVolume?.collectAsStateWithLifecycle() ?: remember { mutableFloatStateOf(1f) }
     val castDeviceName by castHandler?.castDeviceName?.collectAsStateWithLifecycle() ?: remember { mutableStateOf<String?>(null) }
+    val tvPlayer by playerConnection.service.tvRemote.player.collectAsStateWithLifecycle()
+    val tvVolume = tvPlayer?.remoteVolume?.collectAsStateWithLifecycle()?.value ?: 1f
+    val tvStatus by playerConnection.service.tvRemote.status.collectAsStateWithLifecycle()
+    val tvName = (tvStatus as? TvRemoteManager.Status.Connected)?.tv?.name ?: (tvStatus as? TvRemoteManager.Status.Reconnecting)?.tv?.name
 
     val varispeedMode by rememberPreference(VarispeedKey, defaultValue = false)
 
@@ -251,6 +258,30 @@ fun PlayerMenu(
                     .padding(horizontal = 24.dp)
                     .padding(top = 24.dp, bottom = 6.dp),
         ) {
+            if (tvPlayer != null && tvName != null) {
+                Row(
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 16.dp),
+                ) {
+                    Icon(
+                        painter = painterResource(R.drawable.tv),
+                        contentDescription = null,
+                        modifier = Modifier.size(24.dp),
+                        tint = MaterialTheme.colorScheme.primary,
+                    )
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Text(
+                        text = stringResource(R.string.tv_playing_on, tvName),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
+            }
+
             // Show Cast indicator when casting
             if (isCasting && castDeviceName != null) {
                 Row(
@@ -281,9 +312,17 @@ fun PlayerMenu(
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 VolumeSlider(
-                    value = if (isCasting) castVolume else playerVolume.value,
+                    value =
+                        when {
+                            tvPlayer != null -> tvVolume
+                            isCasting -> castVolume
+                            else -> playerVolume.value
+                        },
                     onValueChange = { volume ->
-                        if (isCasting) {
+                        val tv = tvPlayer
+                        if (tv != null) {
+                            tv.setDeviceVolume((volume * TvRemotePlayer.MAX_VOLUME).roundToInt(), 0)
+                        } else if (isCasting) {
                             castHandler?.setVolume(volume)
                         } else {
                             playerConnection.service.playerVolume.value = volume
@@ -730,7 +769,7 @@ fun PlayerMenu(
                                         )
                                     },
                                     onClick = {
-                                        val audioSessionId = playerConnection.player.audioSessionId
+                                        val audioSessionId = playerConnection.localPlayer.audioSessionId
                                         if (audioSessionId != C.AUDIO_SESSION_ID_UNSET && audioSessionId > 0) {
                                             val intent = Intent(AudioEffect.ACTION_DISPLAY_AUDIO_EFFECT_CONTROL_PANEL).apply {
                                                 putExtra(AudioEffect.EXTRA_AUDIO_SESSION, audioSessionId)

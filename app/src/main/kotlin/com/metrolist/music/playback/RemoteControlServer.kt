@@ -21,6 +21,7 @@ import com.metrolist.innertube.YouTube.SearchFilter.Companion.FILTER_SONG
 import com.metrolist.innertube.models.SongItem
 import com.metrolist.innertube.models.WatchEndpoint
 import com.metrolist.music.constants.AutoRadioQueueKey
+import com.metrolist.music.extensions.asUserPick
 import com.metrolist.music.extensions.currentMetadata
 import com.metrolist.music.extensions.getCurrentQueueIndex
 import com.metrolist.music.extensions.getQueueWindows
@@ -37,10 +38,13 @@ import com.metrolist.music.playback.queues.YouTubeQueue
 import com.metrolist.music.playback.tv.PairFinishRequest
 import com.metrolist.music.playback.tv.PairFinishResponse
 import com.metrolist.music.playback.tv.PairStartRequest
+import com.metrolist.music.playback.tv.QueueSnapshot
+import com.metrolist.music.playback.tv.RemoteItemsRequest
 import com.metrolist.music.playback.tv.RemoteState
 import com.metrolist.music.playback.tv.RemoteTrack
 import com.metrolist.music.playback.tv.TvInfo
 import com.metrolist.music.playback.tv.TvPairing
+import com.metrolist.music.playback.tv.toMediaMetadata
 import com.metrolist.music.playback.tv.toRemoteTrack
 import com.metrolist.music.ui.theme.DefaultThemeColor
 import com.metrolist.music.ui.theme.extractThemeColor
@@ -184,6 +188,29 @@ class RemoteControlServer(
                                 id = params["id"],
                             )
                         }
+                    call.respond(if (ok) HttpStatusCode.NoContent else HttpStatusCode.BadRequest)
+                }
+                get("/api/snapshot") {
+                    if (call.authorized()) call.respondJson(json.encodeToString(onMain { service.queueSnapshot() }))
+                }
+                post("/api/load") {
+                    if (!call.authorized()) return@post
+                    val snapshot = runCatching { json.decodeFromString<QueueSnapshot>(call.receiveText()) }.getOrNull()
+                        ?: return@post call.respond(HttpStatusCode.BadRequest)
+                    val ok =
+                        onMain {
+                            if (!canControl()) return@onMain false
+                            service.playSnapshot(snapshot)
+                            service.remoteQueueLoaded.tryEmit(Unit)
+                            true
+                        }
+                    call.respond(if (ok) HttpStatusCode.NoContent else HttpStatusCode.Conflict)
+                }
+                post("/api/items") {
+                    if (!call.authorized()) return@post
+                    val request = runCatching { json.decodeFromString<RemoteItemsRequest>(call.receiveText()) }.getOrNull()
+                        ?: return@post call.respond(HttpStatusCode.BadRequest)
+                    val ok = onMain { canControl() && addItems(request) }
                     call.respond(if (ok) HttpStatusCode.NoContent else HttpStatusCode.BadRequest)
                 }
                 webSocket("/api/ws") {
@@ -344,14 +371,42 @@ class RemoteControlServer(
         )
     }
 
+    private fun canControl(): Boolean {
+        val listenTogether = service.listenTogetherManager
+        return !listenTogether.isInRoom || listenTogether.isHost
+    }
+
+    private fun addItems(request: RemoteItemsRequest): Boolean {
+        val items =
+            request.items.map { track ->
+                track.toMediaMetadata().toMediaItem().let { if (track.pick) it.asUserPick() else it }
+            }
+        if (items.isEmpty()) return false
+        val player = service.player
+        when (request.mode) {
+            RemoteItemsRequest.MODE_NEXT -> service.playNext(items)
+            RemoteItemsRequest.MODE_ADD -> service.addToQueue(items)
+            RemoteItemsRequest.MODE_AT -> {
+                val windows = player.getQueueWindows()
+                if (player.shuffleModeEnabled || request.index !in 0..windows.size) {
+                    service.addToQueue(items)
+                } else {
+                    // Without shuffle the play order is the playlist order
+                    player.addMediaItems(request.index, items)
+                }
+            }
+            else -> return false
+        }
+        return true
+    }
+
     private fun command(
         action: String,
         a: Long,
         b: Long,
         id: String?,
     ): Boolean {
-        val listenTogether = service.listenTogetherManager
-        if (listenTogether.isInRoom && !listenTogether.isHost) return false
+        if (!canControl()) return false
 
         // shortcut: drives the local player only, so it does nothing useful while casting
         val player = service.player
@@ -377,6 +432,7 @@ class RemoteControlServer(
             "setShuffle" -> player.shuffleModeEnabled = a != 0L
             "setRepeat" -> player.repeatMode = a.toInt().coerceIn(Player.REPEAT_MODE_OFF, Player.REPEAT_MODE_ALL)
             "clear" -> service.clearQueue()
+            "radio" -> service.startRadioSeamlessly()
             "jump" -> {
                 player.seekToDefaultPosition(mediaIndex ?: return false)
                 player.resume()

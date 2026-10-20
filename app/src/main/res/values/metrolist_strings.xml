@@ -1115,4 +1115,27 @@
     <string name="tv_pair_title">Pair with %1$s?</string>
     <string name="tv_pair_desc">Enter this code on your phone to control this TV</string>
     <string name="tv_paired_with">Paired with %1$s</string>
+    <string name="play_on_tv">Play on TV</string>
+    <string name="tv_searching">Looking for TVs on your Wi-Fi…</string>
+    <string name="tv_none_found">Open MetroQueue on your TV. It shows up here when both are on the same Wi-Fi</string>
+    <string name="tv_paired">Paired</string>
+    <string name="tv_tap_to_pair">Tap to pair</string>
+    <string name="tv_offline">Not found on this network</string>
+    <string name="tv_move_queue">Move what\'s playing here to the TV</string>
+    <string name="tv_enter_code">Enter the code shown on %1$s</string>
+    <string name="tv_code">Code</string>
+    <string name="tv_pair">Pair</string>
+    <string name="tv_wrong_code">That code isn\'t right</string>
+    <string name="tv_code_expired">The code expired. Try again</string>
+    <string name="tv_too_many_attempts">Too many tries. Wait a few minutes and try again</string>
+    <string name="tv_pairing_removed">This TV forgot this phone. Pair again</string>
+    <string name="tv_unreachable">Can\'t reach the TV. Make sure MetroQueue is open on it</string>
+    <string name="tv_add_manually">Enter the TV\'s address</string>
+    <string name="tv_address">Address, e.g. 192.168.1.20</string>
+    <string name="tv_playing_on">Playing on %1$s</string>
+    <string name="tv_reconnecting">Reconnecting to %1$s…</string>
+    <string name="tv_play_here">Play here</string>
+    <string name="tv_connection_lost">Lost the connection to the TV. You can continue here</string>
+    <string name="tv_command_failed">Couldn\'t reach the TV</string>
+    <string name="tv_transition_editor_unavailable">The transition editor isn\'t available while playing on a TV</string>
 </resources>

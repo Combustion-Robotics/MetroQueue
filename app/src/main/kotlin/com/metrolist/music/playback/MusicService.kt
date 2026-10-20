@@ -199,6 +199,8 @@ import com.metrolist.music.extensions.collect
 import com.metrolist.music.extensions.collectLatest
 import com.metrolist.music.extensions.currentMetadata
 import com.metrolist.music.extensions.findNextMediaItemById
+import com.metrolist.music.extensions.getCurrentQueueIndex
+import com.metrolist.music.extensions.getQueueWindows
 import com.metrolist.music.extensions.isUserPick
 import com.metrolist.music.extensions.mediaItems
 import com.metrolist.music.extensions.metadata
@@ -235,9 +237,14 @@ import com.metrolist.music.playback.queues.YouTubeQueue
 import com.metrolist.music.playback.queues.YouTubePlaylistQueue
 import com.metrolist.music.playback.queues.filterExplicit
 import com.metrolist.music.playback.queues.filterVideoSongs
+import com.metrolist.music.playback.queues.TransferredQueue
+import com.metrolist.music.playback.tv.QueueSnapshot
 import com.metrolist.music.playback.tv.TvAdvertiser
+import com.metrolist.music.playback.tv.toMediaMetadata
+import com.metrolist.music.playback.tv.toRemoteTrack
 import com.metrolist.music.playback.tv.TvPairing
-import com.metrolist.music.playback.tv.tvDeviceName
+import com.metrolist.music.playback.tv.TvRemoteManager
+import com.metrolist.music.playback.tv.deviceName
 import com.metrolist.music.ui.tv.isTvDevice
 import com.metrolist.music.constants.LoudnessLevel
 import com.metrolist.music.constants.LoudnessLevelKey
@@ -269,6 +276,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.asStateFlow
@@ -620,6 +628,28 @@ class MusicService :
     val isTv by lazy { isTvDevice() }
     val tvPairing: TvPairing? by lazy { if (isTv) TvPairing(this, scope) else null }
     private var tvAdvertiser: TvAdvertiser? = null
+
+    /** Fires when a paired phone starts a queue here, so the TV UI can show Now Playing. */
+    val remoteQueueLoaded = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+
+    private val tvRemoteLazy = lazy { TvRemoteManager(this, scope) }
+
+    /** Phone side of "Play on TV". */
+    val tvRemote by tvRemoteLazy
+
+    // The TV player standing in for [player] in the media session while connected to a TV
+    private var sessionRemotePlayer: Player? = null
+
+    /** Swaps the media session (notification, lock screen, volume keys) to [remote], or back to the local player. */
+    fun setSessionPlayer(remote: Player?) {
+        sessionRemotePlayer = remote
+        if (remote != null) player.pause()
+        try {
+            mediaSession?.let { (it as MediaSession).player = remote ?: player }
+        } catch (e: Exception) {
+            Timber.tag(TAG).e(e, "Failed to swap player in MediaSession")
+        }
+    }
 
     // URL cache for stream URLs - class-level so it can be invalidated on errors
     private val songUrlCache = StreamUrlCache()
@@ -1101,7 +1131,7 @@ class MusicService :
                 sleepTimer?.player = newPlayer
 
                 try {
-                    mediaSession?.let { (it as MediaSession).player = newPlayer }
+                    if (sessionRemotePlayer == null) mediaSession?.let { (it as MediaSession).player = newPlayer }
                 } catch (e: Exception) {
                     Timber.tag(TAG).e(e, "Failed to swap player in MediaSession")
                 }
@@ -1340,7 +1370,7 @@ class MusicService :
                         remoteControlServer?.stop()
                         val pairing = tvPairing
                         val tvId = pairing?.deviceId()
-                        val tvName = tvDeviceName()
+                        val tvName = deviceName()
                         remoteControlServer =
                             if (browserKey != null || pairing != null) {
                                 runCatching {
@@ -2022,6 +2052,44 @@ class MusicService :
         }
     }
 
+    /** The queue as the user sees it (play order) with the position, to hand over to another device. */
+    fun queueSnapshot(): QueueSnapshot {
+        val windows = player.getQueueWindows()
+        val radio =
+            when (val queue = currentQueue) {
+                is YouTubeQueue -> queue
+                is TransferredQueue -> queue.next
+                else -> null
+            }?.takeIf { it.hasNextPage() }
+        return QueueSnapshot(
+            title = queueTitle,
+            items = windows.mapNotNull { window -> window.mediaItem.metadata?.toRemoteTrack(pick = window.mediaItem.isUserPick) },
+            index = player.getCurrentQueueIndex().coerceAtLeast(0),
+            position = player.currentPosition.coerceAtLeast(0L),
+            playing = player.playWhenReady,
+            endpoint = radio?.currentEndpoint,
+            continuation = radio?.currentContinuation,
+        )
+    }
+
+    /** Plays a queue handed over from another device (see [queueSnapshot]). */
+    fun playSnapshot(snapshot: QueueSnapshot) {
+        val endpoint = snapshot.endpoint
+        if (snapshot.items.isEmpty()) {
+            if (endpoint != null) playQueue(YouTubeQueue(endpoint, snapshot.preload?.toMediaMetadata()), snapshot.playing)
+            return
+        }
+        val items =
+            snapshot.items.map { track ->
+                track.toMediaMetadata().toMediaItem().let { if (track.pick) it.asUserPick() else it }
+            }
+        val next = endpoint?.takeIf { snapshot.continuation != null }?.let { YouTubeQueue(it, continuation = snapshot.continuation) }
+        playQueue(
+            TransferredQueue(snapshot.title, items, snapshot.index.coerceIn(items.indices), snapshot.position, next),
+            playWhenReady = snapshot.playing,
+        )
+    }
+
     fun adoptQueue(queue: Queue, title: String? = null, initialQueueSize: Int = 0) {
         currentQueue = queue
         queueTitle = title
@@ -2433,6 +2501,11 @@ class MusicService :
     }
 
     fun toggleLike() {
+        val remote = sessionRemotePlayer
+        if (remote != null) {
+            remote.currentMetadata?.let(::toggleLike)
+            return
+        }
         scope.launch {
             val songToToggle = currentSong.first()
             songToToggle?.let { librarySong ->
@@ -2458,6 +2531,19 @@ class MusicService :
                     }
                 }
                 currentMediaMetadata.value = player.currentMetadata
+            }
+        }
+    }
+
+    /** Likes or unlikes [metadata], e.g. the song playing on a TV, which may not be in the database yet. */
+    fun toggleLike(metadata: com.metrolist.music.models.MediaMetadata) {
+        scope.launch {
+            withContext(Dispatchers.IO) { database.insert(metadata) }
+            val song = database.song(metadata.id).first()?.song ?: return@launch
+            val toggled = song.toggleLike(syncToYouTube = false)
+            database.query {
+                update(toggled)
+                syncUtils.likeSong(toggled)
             }
         }
     }
@@ -2958,8 +3044,8 @@ class MusicService :
         playWhenReady: Boolean,
         reason: Int,
     ) {
-        // Safety net: if local player tries to start while casting, immediately pause it
-        if (playWhenReady && castConnectionHandler?.isCasting?.value == true) {
+        // Safety net: if local player tries to start while casting or playing on a TV, immediately pause it
+        if (playWhenReady && (castConnectionHandler?.isCasting?.value == true || sessionRemotePlayer != null)) {
             player.pause()
             return
         }
@@ -4587,6 +4673,7 @@ class MusicService :
         }
         audioManager.unregisterAudioDeviceCallback(audioDeviceCallback)
         castConnectionHandler?.release()
+        if (tvRemoteLazy.isInitialized()) tvRemote.release()
         tvAdvertiser?.unregister()
         remoteControlServer?.stop()
         if (dataStore.get(PersistentQueueKey, true)) {
@@ -5893,7 +5980,7 @@ class MusicService :
         sleepTimer?.player = player
 
         try {
-            mediaSession?.let { (it as MediaSession).player = player }
+            if (sessionRemotePlayer == null) mediaSession?.let { (it as MediaSession).player = player }
         } catch (e: Exception) {
             timber.log.Timber.e(e, "Failed to swap player in MediaSession")
         }

@@ -244,6 +244,10 @@ fun TvApp(
             }
         }
 
+        LaunchedEffect(activeConnection) {
+            activeConnection?.service?.remoteQueueLoaded?.collect { tvController.nowPlayingVisible = true }
+        }
+
         // A phone asking to pair shows its code above everything, including the overlays
         val pairing = playerConnection?.service?.tvPairing
         val pairingPrompt = pairing?.prompt?.collectAsStateWithLifecycle()?.value

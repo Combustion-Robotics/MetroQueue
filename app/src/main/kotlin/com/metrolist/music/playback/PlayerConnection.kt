@@ -34,6 +34,8 @@ import com.metrolist.music.extensions.withUpdatedMetadata
 import com.metrolist.music.models.toMediaMetadata
 import com.metrolist.music.playback.MusicService.MusicBinder
 import com.metrolist.music.playback.queues.Queue
+import com.metrolist.music.playback.tv.TvRemoteManager
+import com.metrolist.music.playback.tv.TvRemotePlayer
 import com.metrolist.music.utils.dataStore
 import com.metrolist.music.utils.get
 import com.metrolist.music.utils.reportException
@@ -41,8 +43,10 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import timber.log.Timber
@@ -91,8 +95,19 @@ class PlayerConnection(
             null
         }
 
-    val player: ExoPlayer
+    /** The player the UI controls: the local one, or a TV's while playing on a TV. */
+    val player: Player
+        get() = service.tvRemote.player.value ?: getPlayerSafe()
+
+    /** Always the local ExoPlayer, for what only applies to playback on this device. */
+    val localPlayer: ExoPlayer
         get() = getPlayerSafe()
+
+    /** Playing on a TV (see [TvRemoteManager]). */
+    val isRemote: StateFlow<Boolean> =
+        service.tvRemote.player
+            .map { it != null }
+            .stateIn(scope, SharingStarted.Eagerly, service.tvRemote.player.value != null)
 
     /** Tracks whether player initialization completed successfully */
     private val isPlayerInitialized = MutableStateFlow(service.isPlayerReady.value)
@@ -208,7 +223,7 @@ class PlayerConnection(
 
     init {
         scope.launch {
-            service.playerFlow.collect { newPlayer ->
+            combine(service.playerFlow, service.tvRemote.player) { local, remote -> remote ?: local }.collect { newPlayer ->
                 if (newPlayer != null && newPlayer != attachedPlayer) {
                     updateAttachedPlayer(newPlayer)
                 }
@@ -230,19 +245,30 @@ class PlayerConnection(
         playbackState.value = newPlayer.playbackState
         playWhenReady.value = newPlayer.playWhenReady
         mediaMetadata.value = newPlayer.currentMetadata
-        queueTitle.value = service.queueTitle
+        queueTitle.value = currentQueueTitle()
         queueWindows.value = newPlayer.getQueueWindows()
         currentWindowIndex.value = newPlayer.getCurrentQueueIndex()
         currentMediaItemIndex.value = newPlayer.currentMediaItemIndex
         shuffleModeEnabled.value = newPlayer.shuffleModeEnabled
         repeatMode.value = newPlayer.repeatMode
+        error.value = newPlayer.playerError
+        updateCanSkipPreviousAndNext()
         Timber.tag(TAG).d("Attached to new player instance: $newPlayer")
     }
+
+    private val remote: TvRemotePlayer?
+        get() = service.tvRemote.player.value
+
+    private fun currentQueueTitle() = remote?.queueTitle ?: service.queueTitle
 
     fun playQueue(queue: Queue) {
         // Block if Listen Together guest (unless internal sync)
         if (!allowInternalSync && shouldBlockPlaybackChanges?.invoke() == true) {
             Timber.tag("PlayerConnection").d("playQueue blocked - Listen Together guest")
+            return
+        }
+        if (remote != null) {
+            service.tvRemote.playQueue(queue)
             return
         }
         if (!playerReadinessFlow.value) {
@@ -274,6 +300,10 @@ class PlayerConnection(
             Timber.tag("PlayerConnection").d("startRadioSeamlessly blocked - Listen Together guest")
             return
         }
+        if (remote != null) {
+            service.tvRemote.startRadio()
+            return
+        }
         if (!playerReadinessFlow.value) {
             Timber.tag(TAG).w("startRadioSeamlessly called before player ready; delegating to service")
         }
@@ -293,6 +323,10 @@ class PlayerConnection(
             Timber.tag("PlayerConnection").d("playNext blocked - Listen Together guest")
             return
         }
+        if (remote != null) {
+            service.tvRemote.playNext(items)
+            return
+        }
         try {
             service.playNext(items)
         } catch (e: Exception) {
@@ -307,6 +341,10 @@ class PlayerConnection(
         // Block if Listen Together guest (unless internal sync)
         if (!allowInternalSync && shouldBlockPlaybackChanges?.invoke() == true) {
             Timber.tag("PlayerConnection").d("addToQueue blocked - Listen Together guest")
+            return
+        }
+        if (remote != null) {
+            service.tvRemote.addToQueue(items)
             return
         }
         try {
@@ -421,6 +459,11 @@ class PlayerConnection(
                 castHandler.skipToNext()
                 return
             }
+            if (remote != null) {
+                player.seekToNext()
+                onSkipNext?.invoke()
+                return
+            }
             if (service.skipWithCrossfade(toNext = true)) {
                 onSkipNext?.invoke()
                 return
@@ -444,6 +487,11 @@ class PlayerConnection(
             val castHandler = service.castConnectionHandler
             if (castHandler?.isCasting?.value == true) {
                 castHandler.skipToPrevious()
+                return
+            }
+            if (remote != null) {
+                player.seekToPrevious()
+                onSkipPrevious?.invoke()
                 return
             }
 
@@ -600,7 +648,7 @@ class PlayerConnection(
 
     override fun onPlaybackStateChanged(state: Int) {
         playbackState.value = state
-        error.value = player.playerError
+        error.value = attachedPlayer?.playerError
     }
 
     override fun onPlayWhenReadyChanged(
@@ -631,7 +679,7 @@ class PlayerConnection(
         reason: Int,
     ) {
         queueWindows.value = player.getQueueWindows()
-        queueTitle.value = service.queueTitle
+        queueTitle.value = currentQueueTitle()
         currentMediaItemIndex.value = player.currentMediaItemIndex
         currentWindowIndex.value = player.getCurrentQueueIndex()
         updateCanSkipPreviousAndNext()

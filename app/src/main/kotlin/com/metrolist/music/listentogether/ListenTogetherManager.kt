@@ -169,7 +169,7 @@ class ListenTogetherManager
 
                         val connection = playerConnection ?: return
                         if (connection.allowInternalSync) return
-                        val player = connection.player
+                        val player = connection.localPlayer
 
                         Timber.tag(TAG).d("Play state changed: $playWhenReady (reason: $reason)")
 
@@ -236,7 +236,7 @@ class ListenTogetherManager
 
                         val connection = playerConnection ?: return
                         if (connection.allowInternalSync) return
-                        val player = connection.player
+                        val player = connection.localPlayer
 
                         val trackId = mediaItem.mediaId
                         if (trackId == lastSyncedTrackId) return
@@ -279,7 +279,7 @@ class ListenTogetherManager
 
                         // Only send seek if it was a user-initiated seek
                         if (reason == Player.DISCONTINUITY_REASON_SEEK) {
-                            val trackId = playerConnection?.player?.currentMediaItem?.mediaId
+                            val trackId = playerConnection?.localPlayer?.currentMediaItem?.mediaId
                             Timber.tag(TAG).d("Host sending SEEK to ${newPosition.positionMs} (track: $trackId)")
                             client.sendPlaybackAction(PlaybackActions.SEEK, trackId = trackId, position = newPosition.positionMs)
                         }
@@ -301,7 +301,7 @@ class ListenTogetherManager
                 val oldConnection = playerConnection
                 if (playerListenerRegistered && oldConnection != null) {
                     try {
-                        oldConnection.player.removeListener(playerListener)
+                        oldConnection.localPlayer.removeListener(playerListener)
                     } catch (e: Exception) {
                         Timber.tag(TAG).e(e, "Error removing old player listener")
                     }
@@ -326,7 +326,7 @@ class ListenTogetherManager
                 // Add listener if in room
                 if (connection != null && isInRoom) {
                     try {
-                        connection.player.addListener(playerListener)
+                        connection.localPlayer.addListener(playerListener)
                         playerListenerRegistered = true
                         Timber.tag(TAG).d("Added player listener for room sync")
                     } catch (e: Exception) {
@@ -338,7 +338,7 @@ class ListenTogetherManager
                     connection.onRestartSong = {
                         try {
                             if (isHost && !isSyncing) {
-                                val trackId = connection.player.currentMediaItem?.mediaId
+                                val trackId = connection.localPlayer.currentMediaItem?.mediaId
                                 Timber.tag(TAG).d("Host Restart Song triggered (sending 1ms as 0ms workaround, track: $trackId)")
                                 client.sendPlaybackAction(PlaybackActions.SEEK, trackId = trackId, position = 1L)
                             }
@@ -415,7 +415,7 @@ class ListenTogetherManager
                                 // Re-register listener if needed
                                 if (!playerListenerRegistered) {
                                     try {
-                                        connection.player.addListener(playerListener)
+                                        connection.localPlayer.addListener(playerListener)
                                         playerListenerRegistered = true
                                     } catch (e: Exception) {
                                         Timber.tag(TAG).e(e, "Failed to add player listener on role change")
@@ -447,7 +447,7 @@ class ListenTogetherManager
                     try {
                         // Register player listener for host
                         val connection = playerConnection
-                        val player = connection?.player
+                        val player = connection?.localPlayer
                         if (player != null && !playerListenerRegistered) {
                             try {
                                 player.addListener(playerListener)
@@ -567,7 +567,7 @@ class ListenTogetherManager
                     try {
                         // Re-register player listener
                         val connection = playerConnection
-                        val player = connection?.player
+                        val player = connection?.localPlayer
                         if (player != null && !playerListenerRegistered) {
                             try {
                                 player.addListener(playerListener)
@@ -647,7 +647,7 @@ class ListenTogetherManager
                         stopQueueSyncObservation()
                         stopVolumeSyncObservation()
                         if (playerListenerRegistered) {
-                            playerConnection?.player?.removeListener(playerListener)
+                            playerConnection?.localPlayer?.removeListener(playerListener)
                             playerListenerRegistered = false
                         }
                         // Restore guest mute state since we're now a guest
@@ -659,7 +659,7 @@ class ListenTogetherManager
 
                         // Register player listener
                         val connection = playerConnection
-                        val player = connection?.player
+                        val player = connection?.localPlayer
                         if (player != null && !playerListenerRegistered) {
                             try {
                                 player.addListener(playerListener)
@@ -706,7 +706,7 @@ class ListenTogetherManager
                 restoreGuestMuteState()
             }
             if (playerListenerRegistered) {
-                playerConnection?.player?.removeListener(playerListener)
+                playerConnection?.localPlayer?.removeListener(playerListener)
                 playerListenerRegistered = false
             }
             stopQueueSyncObservation()
@@ -825,7 +825,7 @@ class ListenTogetherManager
             invalidatePendingQueueMutations()
             if (playerConnection !== connection) return
 
-            val player = connection.player
+            val player = connection.localPlayer
             val state = roomState.value
             val currentTrack = state?.currentTrackOrNull
             if (currentTrack != null && player.currentMediaItem?.mediaId != currentTrack.id) {
@@ -875,7 +875,7 @@ class ListenTogetherManager
             effectiveAtServerTime: Long?,
         ) {
             cancelDriftCorrection()
-            val player = connection.player
+            val player = connection.localPlayer
             if (!player.playWhenReady || effectiveAtServerTime == null || client.serverTimeNow() == null) return
 
             val baseParameters = player.playbackParameters
@@ -924,7 +924,7 @@ class ListenTogetherManager
             if (completeForTrack != pendingTrackId) return
 
             val connection = playerConnection ?: return
-            val player = connection.player
+            val player = connection.localPlayer
 
             Timber.tag(TAG).d("Applying pending sync: track=$pendingTrackId, pos=${pending.position}, play=${pending.isPlaying}")
             isSyncing = true
@@ -1025,7 +1025,7 @@ class ListenTogetherManager
                 Timber.tag(TAG).w("Cannot sync playback - no player connection")
                 return
             }
-            val player = connection.player
+            val player = connection.localPlayer
             val actionPosition = action.positionOrNull
             val actionTrackId = action.trackIdOrNull
             val actionTrackInfo = action.trackInfoOrNull
@@ -1356,7 +1356,7 @@ class ListenTogetherManager
                             activeSyncJob?.cancel()
 
                             if (playerConnection !== connection) return
-                            val player = connection.player
+                            val player = connection.localPlayer
 
                             val mediaItems =
                                 queue.map { track ->
@@ -1439,7 +1439,7 @@ class ListenTogetherManager
                 applyHostVolumeIfNeeded(state.volume)
                 return
             }
-            val localTrackId = playerConnection?.player?.currentMediaItem?.mediaId
+            val localTrackId = playerConnection?.localPlayer?.currentMediaItem?.mediaId
             if (!forceFullState && currentTrack != null && localTrackId == currentTrack.id && bufferingTrackId == null) {
                 handlePlaybackSync(
                     PlaybackActionPayload(
@@ -1479,7 +1479,7 @@ class ListenTogetherManager
                 Timber.tag(TAG).w("Cannot apply playback state - no player")
                 return
             }
-            val player = connection.player
+            val player = connection.localPlayer
             cancelDriftCorrection()
             val initialPosition = client.positionAtServerTime(position, effectiveAtServerTime, isPlaying)
 
@@ -1698,7 +1698,7 @@ class ListenTogetherManager
                                             return@launch
                                         }
                                         try {
-                                            val player = connection.player
+                                            val player = connection.localPlayer
                                             if (player.playbackState == Player.STATE_READY) {
                                                 Timber.tag(TAG).d("Player ready after ${waitCount * 50}ms")
                                                 break
@@ -2044,7 +2044,7 @@ class ListenTogetherManager
                 scope.launch {
                     while (heartbeatJob?.isActive == true && isInRoom && isHost) {
                         delay(8000L)
-                        playerConnection?.player?.let { player ->
+                        playerConnection?.localPlayer?.let { player ->
                             if (player.playWhenReady && player.playbackState == Player.STATE_READY) {
                                 val pos = player.currentPosition
                                 val beatTrackId = player.currentMediaItem?.mediaId

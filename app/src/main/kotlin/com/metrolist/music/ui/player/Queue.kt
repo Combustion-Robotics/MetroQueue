@@ -100,6 +100,7 @@ import androidx.compose.ui.unit.sp
 import androidx.datastore.preferences.core.edit
 import androidx.media3.common.Player
 import androidx.media3.common.Timeline
+import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.ShuffleOrder.DefaultShuffleOrder
 import com.metrolist.music.LocalNavController
 import com.metrolist.music.LocalListenTogetherManager
@@ -752,10 +753,12 @@ fun Queue(
                     val safeFrom = (from - headerItems).coerceIn(0, queueWindows.lastIndex)
                     val safeTo = (to - headerItems).coerceIn(0, queueWindows.lastIndex)
 
-                    if (!playerConnection.player.shuffleModeEnabled) {
-                        playerConnection.player.moveMediaItem(safeFrom, safeTo)
+                    val player = playerConnection.player
+                    // A TV's queue is already in play order, and the TV reorders its shuffle itself
+                    if (!player.shuffleModeEnabled || player !is ExoPlayer) {
+                        player.moveMediaItem(safeFrom, safeTo)
                     } else {
-                        playerConnection.player.setShuffleOrder(
+                        player.setShuffleOrder(
                             DefaultShuffleOrder(
                                 queueWindows
                                     .map { it.firstPeriodIndex }
@@ -1296,6 +1299,11 @@ fun Queue(
                             .only(WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal),
                     ).padding(12.dp),
         ) {
+            TvDevicesButton(
+                modifier = Modifier.align(Alignment.CenterStart).padding(start = 48.dp),
+                tintColor = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+
             IconToggleButton(
                 checked = shuffleModeEnabled,
                 enabled = !isListenTogetherGuest,
