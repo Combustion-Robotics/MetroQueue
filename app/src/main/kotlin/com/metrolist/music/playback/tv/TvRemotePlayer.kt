@@ -197,9 +197,9 @@ class TvRemotePlayer(
         return future
     }
 
-    private fun setVolume(volume: Float) = send { command("volume", (volume.coerceIn(0f, 1f) * 100).roundToLong()) }
+    private fun sendVolume(volume: Float) = send { command("volume", (volume.coerceIn(0f, 1f) * 100).roundToLong()) }
 
-    private val volume: Float
+    private val tvVolume: Float
         get() = remote?.volume ?: 1f
 
     override fun handleSetPlayWhenReady(playWhenReady: Boolean) = send { command(if (playWhenReady) "resume" else "pause") }
@@ -217,16 +217,16 @@ class TvRemotePlayer(
     override fun handleSetDeviceVolume(
         deviceVolume: Int,
         flags: Int,
-    ) = setVolume(deviceVolume.toFloat() / MAX_VOLUME)
+    ) = sendVolume(deviceVolume.toFloat() / MAX_VOLUME)
 
-    override fun handleIncreaseDeviceVolume(flags: Int) = setVolume(volume + 1f / MAX_VOLUME)
+    override fun handleIncreaseDeviceVolume(flags: Int) = sendVolume(tvVolume + 1f / MAX_VOLUME)
 
-    override fun handleDecreaseDeviceVolume(flags: Int) = setVolume(volume - 1f / MAX_VOLUME)
+    override fun handleDecreaseDeviceVolume(flags: Int) = sendVolume(tvVolume - 1f / MAX_VOLUME)
 
     override fun handleSetDeviceMuted(
         muted: Boolean,
         flags: Int,
-    ) = setVolume(if (muted) 0f else lastAudibleVolume)
+    ) = sendVolume(if (muted) 0f else lastAudibleVolume)
 
     override fun handleSeek(
         mediaItemIndex: Int,
