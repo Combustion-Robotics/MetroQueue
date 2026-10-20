@@ -10,6 +10,8 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.util.UnstableApi
 import com.metrolist.music.R
 import com.metrolist.music.constants.PairedTvsKey
+import com.metrolist.music.constants.TvAutoSyncLibraryKey
+import com.metrolist.music.constants.TvLibrarySyncedKey
 import com.metrolist.music.extensions.metadata
 import com.metrolist.music.playback.MusicService
 import com.metrolist.music.playback.queues.Queue
@@ -25,6 +27,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -79,6 +82,19 @@ class TvRemoteManager(
             .map { decode(it[PairedTvsKey]) }
             .distinctUntilChanged()
             .stateIn(scope, SharingStarted.Lazily, emptyList())
+
+    /** When this phone's library was last synced to each TV, by TV id. */
+    val librarySyncTimes: StateFlow<Map<String, Long>> =
+        service.dataStore.data
+            .map { prefs ->
+                prefs[TvLibrarySyncedKey]
+                    ?.let { runCatching { json.decodeFromString<Map<String, Long>>(it) }.getOrNull() }
+                    .orEmpty()
+            }.distinctUntilChanged()
+            .stateIn(scope, SharingStarted.Lazily, emptyMap())
+
+    private val _syncingLibrary = MutableStateFlow(false)
+    val syncingLibrary: StateFlow<Boolean> = _syncingLibrary.asStateFlow()
 
     private var tv: PairedTv? = null
     private var socket: WebSocket? = null
@@ -147,6 +163,9 @@ class TvRemoteManager(
             _status.value = Status.Connected(connected)
             // Remembers where the TV was found and its current name
             savePaired(connected)
+            if (service.dataStore.data.first()[TvAutoSyncLibraryKey] == true) {
+                scope.launch { runCatching { syncLibrary(connected) }.onFailure { Timber.tag(TAG).w(it, "Library sync failed") } }
+            }
         } catch (e: Exception) {
             if (_player.value == null) _status.value = Status.Idle
             throw e
@@ -165,6 +184,24 @@ class TvRemoteManager(
         if (playHere) runCatching { remotePlayer.client.command("pause") }
         teardown()
         snapshot?.let { service.playSnapshot(it.copy(playing = true)) }
+    }
+
+    /** Sends this phone's library to [target], which keeps it as this phone's profile. */
+    suspend fun syncLibrary(target: PairedTv) {
+        if (!_syncingLibrary.compareAndSet(expect = false, update = true)) return
+        try {
+            val upload = service.database.gzippedLibrarySnapshot()
+            TvRemoteClient(target.host, target.port, target.token).uploadProfile(upload)
+            service.safeDataStoreEdit { prefs ->
+                val times =
+                    prefs[TvLibrarySyncedKey]
+                        ?.let { runCatching { json.decodeFromString<Map<String, Long>>(it) }.getOrNull() }
+                        .orEmpty()
+                prefs[TvLibrarySyncedKey] = json.encodeToString(times + (target.id to System.currentTimeMillis()))
+            }
+        } finally {
+            _syncingLibrary.value = false
+        }
     }
 
     /** Disconnects and leaves the TV playing. */

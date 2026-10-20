@@ -240,6 +240,7 @@ import com.metrolist.music.playback.queues.filterVideoSongs
 import com.metrolist.music.playback.queues.TransferredQueue
 import com.metrolist.music.playback.tv.QueueSnapshot
 import com.metrolist.music.playback.tv.TvAdvertiser
+import com.metrolist.music.playback.tv.TvProfileStore
 import com.metrolist.music.playback.tv.toMediaMetadata
 import com.metrolist.music.playback.tv.toRemoteTrack
 import com.metrolist.music.playback.tv.TvPairing
@@ -321,6 +322,9 @@ class MusicService :
 
     @Inject
     lateinit var syncUtils: SyncUtils
+
+    @Inject
+    lateinit var tvProfiles: dagger.Lazy<TvProfileStore>
 
     @Inject
     lateinit var downloadUtil: DownloadUtil
@@ -1374,7 +1378,7 @@ class MusicService :
                         remoteControlServer =
                             if (browserKey != null || pairing != null) {
                                 runCatching {
-                                    RemoteControlServer(this@MusicService, browserKey, pairing, tvId, tvName).apply { start() }
+                                    RemoteControlServer(this@MusicService, browserKey, pairing, tvId, tvName, if (isTv) tvProfiles.get() else null).apply { start() }
                                 }.onFailure { Timber.tag(TAG).e(it, "Remote control server failed to start") }
                                     .getOrNull()
                             } else {

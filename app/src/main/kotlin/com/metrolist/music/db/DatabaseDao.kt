@@ -1508,6 +1508,10 @@ interface DatabaseDao {
     @Query("SELECT * FROM event ORDER BY rowId DESC LIMIT 1")
     fun latestEvent(): Flow<EventWithSong?>
 
+    @Transaction
+    @Query("SELECT * FROM event ORDER BY rowId DESC LIMIT :limit")
+    suspend fun recentEvents(limit: Int): List<EventWithSong>
+
     @Query("SELECT COUNT(*) FROM event")
     fun eventCount(): Flow<Int>
 

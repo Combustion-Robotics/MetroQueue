@@ -204,6 +204,7 @@ import com.metrolist.music.ui.theme.DefaultThemeColor
 import com.metrolist.music.ui.theme.MetrolistTheme
 import com.metrolist.music.ui.tv.TvApp
 import com.metrolist.music.ui.tv.isTvDevice
+import com.metrolist.music.playback.tv.TvProfileStore
 import com.metrolist.music.ui.theme.extractThemeColor
 import com.metrolist.music.ui.utils.appBarScrollBehavior
 import com.metrolist.music.ui.utils.resetHeightOffset
@@ -266,6 +267,9 @@ class MainActivity : FragmentActivity() {
 
     @Inject
     lateinit var syncUtils: SyncUtils
+
+    @Inject
+    lateinit var tvProfiles: dagger.Lazy<TvProfileStore>
 
     @Inject
     lateinit var listenTogetherManager: com.metrolist.music.listentogether.ListenTogetherManager
@@ -702,6 +706,7 @@ class MainActivity : FragmentActivity() {
                     database = database,
                     downloadUtil = downloadUtil,
                     syncUtils = syncUtils,
+                    profiles = tvProfiles.get(),
                 )
             }
             return

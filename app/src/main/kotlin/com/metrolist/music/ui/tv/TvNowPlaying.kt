@@ -5,6 +5,7 @@
 
 package com.metrolist.music.ui.tv
 
+import android.widget.Toast
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateDpAsState
@@ -147,6 +148,11 @@ fun TvNowPlaying(
     }
 
     val metadata = mediaMetadata
+    // A phone profile's likes show here too; they can only be changed on that phone
+    val context = LocalContext.current
+    val profile = rememberActiveProfile()
+    val localLiked = currentSong?.song?.liked == true
+    val profileLiked = profile != null && metadata != null && metadata.id in profile.likedIds
     Box(Modifier.fillMaxSize().background(Color.Black)) {
         TvArtworkBackdrop(metadata?.thumbnailUrl)
         if (metadata == null) {
@@ -159,7 +165,14 @@ fun TvNowPlaying(
                 ended = playbackState == Player.STATE_ENDED,
                 shuffle = shuffle,
                 repeatMode = repeatMode,
-                liked = currentSong?.song?.liked == true,
+                liked = localLiked || profileLiked,
+                onToggleLike = {
+                    if (profileLiked && !localLiked) {
+                        Toast.makeText(context, context.getString(R.string.tv_profile_liked_note, profile?.profile?.name.orEmpty()), Toast.LENGTH_SHORT).show()
+                    } else {
+                        playerConnection.toggleLike()
+                    }
+                },
                 queueTitle = queueTitle,
                 queueWindows = queueWindows,
                 currentWindowIndex = currentWindowIndex,
@@ -187,6 +200,7 @@ private fun TvNowPlayingContent(
     shuffle: Boolean,
     repeatMode: Int,
     liked: Boolean,
+    onToggleLike: () -> Unit,
     queueTitle: String?,
     queueWindows: List<Timeline.Window>,
     currentWindowIndex: Int,
@@ -337,7 +351,7 @@ private fun TvNowPlayingContent(
                 icon = if (liked) R.drawable.favorite else R.drawable.favorite_border,
                 contentDescription = null,
                 active = liked,
-                onClick = playerConnection::toggleLike,
+                onClick = onToggleLike,
             )
             TvIconButton(
                 icon = R.drawable.lyrics,

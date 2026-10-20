@@ -38,6 +38,7 @@ import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
@@ -81,10 +82,13 @@ import com.metrolist.music.constants.AutoRadioQueueKey
 import com.metrolist.music.db.MusicDatabase
 import com.metrolist.music.playback.DownloadUtil
 import com.metrolist.music.playback.PlayerConnection
+import com.metrolist.music.playback.tv.TvProfile
+import com.metrolist.music.playback.tv.TvProfileStore
 import com.metrolist.music.ui.screens.LoginScreen
 import com.metrolist.music.utils.SearchRoutes
 import com.metrolist.music.utils.SyncUtils
 import com.metrolist.music.utils.rememberPreference
+import kotlinx.coroutines.launch
 
 private enum class TvTab(
     val route: String,
@@ -107,6 +111,7 @@ fun TvApp(
     database: MusicDatabase,
     downloadUtil: DownloadUtil,
     syncUtils: SyncUtils,
+    profiles: TvProfileStore,
 ) {
     val navController = rememberNavController()
     val tvController = remember(navController) { TvController(navController) }
@@ -145,6 +150,20 @@ fun TvApp(
         runCatching { selectedRailItem.requestFocus() }
     }
 
+    val coroutineScope = rememberCoroutineScope()
+    val profileList by profiles.profiles.collectAsStateWithLifecycle()
+    val activeProfile by profiles.active.collectAsStateWithLifecycle()
+    var profilePickerVisible by rememberSaveable { mutableStateOf(false) }
+    var askedForProfile by rememberSaveable { mutableStateOf(false) }
+    // "Who's listening?" once per launch, as soon as there is a synced phone to choose
+    LaunchedEffect(profileList) {
+        val loaded = profileList ?: return@LaunchedEffect
+        if (!askedForProfile) {
+            askedForProfile = true
+            if (loaded.isNotEmpty()) profilePickerVisible = true
+        }
+    }
+
     val selectTab: (TvTab) -> Unit = { tab ->
         if (tab.route != route) {
             navController.navigate(tab.route) {
@@ -163,6 +182,7 @@ fun TvApp(
         LocalDownloadUtil provides downloadUtil,
         LocalSyncUtils provides syncUtils,
         LocalTvController provides tvController,
+        LocalTvProfiles provides profiles,
         LocalContentColor provides MaterialTheme.colorScheme.onSurface,
     ) {
         Box(
@@ -219,6 +239,10 @@ fun TvApp(
                         route = "auto_playlist/{playlist}",
                         arguments = listOf(navArgument("playlist") { type = NavType.StringType }),
                     ) { TvAutoPlaylistScreen() }
+                    composable(
+                        route = "profile_playlist/{playlistId}",
+                        arguments = listOf(navArgument("playlistId") { type = NavType.StringType }),
+                    ) { entry -> TvProfilePlaylistScreen(entry.arguments?.getString("playlistId").orEmpty()) }
                     composable("login") { LoginScreen(navController) }
                 }
             }
@@ -229,6 +253,9 @@ fun TvApp(
                 selectedRequester = selectedRailItem,
                 playerConnection = activeConnection,
                 onOpenNowPlaying = { tvController.nowPlayingVisible = true },
+                showProfile = !profileList.isNullOrEmpty(),
+                activeProfile = activeProfile?.profile,
+                onOpenProfiles = { profilePickerVisible = true },
                 modifier = Modifier.align(Alignment.CenterStart),
             )
         }
@@ -254,6 +281,18 @@ fun TvApp(
 
         LaunchedEffect(activeConnection) {
             activeConnection?.service?.remoteQueueLoaded?.collect { tvController.nowPlayingVisible = true }
+        }
+
+        if (profilePickerVisible) {
+            TvProfilePicker(
+                profiles = profileList.orEmpty(),
+                activeId = activeProfile?.profile?.id,
+                onSelect = { id ->
+                    profilePickerVisible = false
+                    coroutineScope.launch { profiles.select(id) }
+                },
+                onDismiss = { profilePickerVisible = false },
+            )
         }
 
         // A phone asking to pair shows its code above everything, including the overlays
@@ -287,6 +326,9 @@ private fun TvNavRail(
     selectedRequester: FocusRequester,
     playerConnection: PlayerConnection?,
     onOpenNowPlaying: () -> Unit,
+    showProfile: Boolean,
+    activeProfile: TvProfile?,
+    onOpenProfiles: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var expanded by remember { mutableStateOf(false) }
@@ -309,6 +351,37 @@ private fun TvNavRail(
                 .focusRestorer(selectedRequester)
                 .padding(horizontal = 16.dp, vertical = TvDimens.SafeVertical),
     ) {
+        if (showProfile) {
+            TvSurface(
+                onClick = onOpenProfiles,
+                modifier = Modifier.fillMaxWidth().height(56.dp),
+                shape = CircleShape,
+                containerColor = Color.Transparent,
+                focusedContainerColor = MaterialTheme.colorScheme.primary,
+                focusedContentColor = MaterialTheme.colorScheme.onPrimary,
+                focusedScale = 1.03f,
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxSize().padding(horizontal = 6.dp)) {
+                    TvProfileAvatar(profile = activeProfile, size = 44.dp)
+                    if (expanded) {
+                        Spacer(Modifier.width(12.dp))
+                        Column {
+                            Text(
+                                text = activeProfile?.name ?: stringResource(R.string.tv_guest),
+                                style = MaterialTheme.typography.titleSmall,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            Text(
+                                text = stringResource(R.string.tv_switch_profile),
+                                style = MaterialTheme.typography.labelMedium,
+                                maxLines = 1,
+                            )
+                        }
+                    }
+                }
+            }
+        }
         Spacer(Modifier.weight(1f))
         TvTab.entries.forEach { tab ->
             val isSelected = tab == selected

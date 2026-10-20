@@ -1138,4 +1138,26 @@
     <string name="tv_connection_lost">Lost the connection to the TV. You can continue here</string>
     <string name="tv_command_failed">Couldn\'t reach the TV</string>
     <string name="tv_transition_editor_unavailable">The transition editor isn\'t available while playing on a TV</string>
+    <string name="tv_whos_listening">Who\'s listening?</string>
+    <string name="tv_guest">Guest</string>
+    <string name="tv_guest_desc">This TV\'s own library</string>
+    <string name="tv_switch_profile">Switch profile</string>
+    <string name="tv_profiles">Profiles</string>
+    <string name="tv_profile_synced">Synced %1$s</string>
+    <string name="tv_profile_library_from">From %1$s · synced %2$s</string>
+    <string name="tv_recently_played">Recently played</string>
+    <string name="tv_profile_liked_note">Liked on %1$s. Change it on that phone</string>
+    <string name="tv_forget_title">Forget %1$s?</string>
+    <string name="tv_forget_desc">This phone won\'t be able to control the TV until it pairs again</string>
+    <string name="tv_forget_profile_desc">This phone won\'t be able to control the TV until it pairs again. Its synced library can stay on the TV as a profile</string>
+    <string name="tv_forget_keep_profile">Forget, keep profile</string>
+    <string name="tv_forget_delete_profile">Forget and delete profile</string>
+    <string name="tv_sync_library">Sync library to this TV</string>
+    <string name="tv_sync_library_desc">Your liked songs, playlists, albums, artists and recent history become your profile on the TV. Your account stays on this phone</string>
+    <string name="tv_last_synced">Last synced %1$s</string>
+    <string name="tv_sync_now">Sync now</string>
+    <string name="tv_syncing_library">Syncing…</string>
+    <string name="tv_auto_sync_library">Sync automatically when connecting</string>
+    <string name="tv_library_synced">Library synced to %1$s</string>
+    <string name="tv_sync_failed">Couldn\'t sync the library to the TV</string>
 </resources>

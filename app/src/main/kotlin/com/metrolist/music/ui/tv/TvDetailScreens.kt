@@ -30,6 +30,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -50,6 +51,7 @@ import com.metrolist.music.playback.queues.ListQueue
 import com.metrolist.music.playback.queues.LocalAlbumRadio
 import com.metrolist.music.playback.queues.YouTubePlaylistQueue
 import com.metrolist.music.playback.queues.YouTubeQueue
+import com.metrolist.music.playback.tv.toMediaMetadata
 import com.metrolist.music.utils.makeTimeString
 import com.metrolist.music.viewmodels.AlbumViewModel
 import com.metrolist.music.viewmodels.ArtistViewModel
@@ -158,6 +160,35 @@ fun TvLocalPlaylistScreen(viewModel: LocalPlaylistViewModel = hiltViewModel()) {
         tracks = songs.map { it.toTvTrack() },
         onPlay = { index -> tv.playList(current.playlist.name, songs, startIndex = index) },
         onShuffle = { tv.playList(current.playlist.name, songs, shuffle = true) },
+    )
+}
+
+/** A playlist (or the liked songs, [PROFILE_LIKED_ID]) from the active phone profile. */
+@Composable
+fun TvProfilePlaylistScreen(playlistId: String) {
+    val tv = LocalTvController.current
+    val profile = rememberActiveProfile()
+    val likedTitle = stringResource(R.string.liked_songs)
+    val playlist =
+        remember(profile, playlistId) {
+            profile?.library?.playlists?.firstOrNull { it.id == playlistId }
+        }
+    val tracks =
+        remember(profile, playlist) {
+            val source = if (playlistId == PROFILE_LIKED_ID) profile?.library?.likedSongs else playlist?.songs
+            source.orEmpty().map { it.toMediaMetadata() }
+        }
+    val title = playlist?.name ?: likedTitle
+    TvCollectionScreen(
+        title = title,
+        subtitle = profile?.profile?.name,
+        thumbnailUrl = playlist?.thumbnail ?: tracks.firstOrNull()?.thumbnailUrl,
+        tracks =
+            remember(tracks) {
+                tracks.map { TvTrack(it.id, it.title, it.artists.joinToString { a -> a.name }, it.thumbnailUrl, it.duration.takeIf { d -> d > 0 }) }
+            },
+        onPlay = { index -> tv.playTracks(title, tracks, startIndex = index) },
+        onShuffle = { tv.playTracks(title, tracks, shuffle = true) },
     )
 }
 

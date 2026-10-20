@@ -25,6 +25,7 @@ import com.metrolist.music.db.entities.LocalItem
 import com.metrolist.music.db.entities.Playlist
 import com.metrolist.music.db.entities.Song
 import com.metrolist.music.extensions.toMediaItem
+import com.metrolist.music.models.MediaMetadata
 import com.metrolist.music.models.toMediaMetadata
 import com.metrolist.music.playback.PlayerConnection
 import com.metrolist.music.playback.queues.ListQueue
@@ -70,7 +71,10 @@ class TvController(
         )
     }
 
-    fun playSong(song: Song) {
+    fun playSong(song: Song) = playTrack(song.toMediaMetadata())
+
+    /** Plays one song (as a radio when auto radio is on), or just shows Now Playing if it's already playing. */
+    fun playTrack(song: MediaMetadata) {
         val connection = playerConnection
         if (connection != null && connection.mediaMetadata.value?.id == song.id) {
             nowPlayingVisible = true
@@ -78,11 +82,23 @@ class TvController(
         }
         play(
             if (autoRadio) {
-                YouTubeQueue.radio(song.toMediaMetadata())
+                YouTubeQueue.radio(song)
             } else {
                 ListQueue(title = song.title, items = listOf(song.toMediaItem()))
             },
         )
+    }
+
+    /** Like [playList], for songs that aren't in the TV's database (e.g. a phone profile's). */
+    fun playTracks(
+        title: String?,
+        songs: List<MediaMetadata>,
+        startIndex: Int = 0,
+        shuffle: Boolean = false,
+    ) {
+        if (songs.isEmpty()) return
+        val items = if (shuffle) songs.shuffled() else songs
+        play(ListQueue(title = title, items = items.map { it.toMediaItem() }, startIndex = if (shuffle) 0 else startIndex))
     }
 
     /** Plays [songs] in order (or shuffled) starting at [startIndex]. */

@@ -5,6 +5,8 @@
 
 package com.metrolist.music.ui.player
 
+import android.text.format.DateUtils
+import android.widget.Toast
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -46,6 +48,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.ImeAction
@@ -55,10 +58,12 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.metrolist.music.LocalPlayerConnection
 import com.metrolist.music.R
+import com.metrolist.music.constants.TvAutoSyncLibraryKey
 import com.metrolist.music.playback.RemoteControlServer
 import com.metrolist.music.playback.tv.PairedTv
 import com.metrolist.music.playback.tv.TvRemoteClient
 import com.metrolist.music.playback.tv.TvRemoteManager
+import com.metrolist.music.utils.rememberPreference
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
@@ -138,6 +143,10 @@ private fun TvDevicePicker(
     val status by manager.status.collectAsStateWithLifecycle()
     val pairedTvs by manager.pairedTvs.collectAsStateWithLifecycle()
     val discovered by manager.discovery.tvs.collectAsStateWithLifecycle()
+    val syncTimes by manager.librarySyncTimes.collectAsStateWithLifecycle()
+    val syncing by manager.syncingLibrary.collectAsStateWithLifecycle()
+    var autoSync by rememberPreference(TvAutoSyncLibraryKey, defaultValue = false)
+    val context = LocalContext.current
     val idle = status is TvRemoteManager.Status.Idle
 
     var busy by remember { mutableStateOf(false) }
@@ -250,6 +259,28 @@ private fun TvDevicePicker(
                                 stringResource(R.string.tv_reconnecting, tv.name)
                             },
                         busy = busy,
+                        sync =
+                            (current as? TvRemoteManager.Status.Connected)?.let {
+                                LibrarySyncState(
+                                    lastSynced = syncTimes[tv.id],
+                                    syncing = syncing,
+                                    autoSync = autoSync,
+                                    onAutoSyncChange = { autoSync = it },
+                                    onSync = {
+                                        error = null
+                                        coroutineScope.launch {
+                                            try {
+                                                manager.syncLibrary(tv)
+                                                Toast.makeText(context, context.getString(R.string.tv_library_synced, tv.name), Toast.LENGTH_SHORT).show()
+                                            } catch (e: CancellationException) {
+                                                throw e
+                                            } catch (e: Exception) {
+                                                error = R.string.tv_sync_failed
+                                            }
+                                        }
+                                    },
+                                )
+                            },
                         onPlayHere = {
                             launchAction {
                                 manager.disconnect(playHere = true)
@@ -400,10 +431,19 @@ private fun TvEntryRow(
     )
 }
 
+private class LibrarySyncState(
+    val lastSynced: Long?,
+    val syncing: Boolean,
+    val autoSync: Boolean,
+    val onAutoSyncChange: (Boolean) -> Unit,
+    val onSync: () -> Unit,
+)
+
 @Composable
 private fun ConnectedCard(
     title: String,
     busy: Boolean,
+    sync: LibrarySyncState?,
     onPlayHere: () -> Unit,
     onDisconnect: () -> Unit,
 ) {
@@ -427,6 +467,38 @@ private fun ConnectedCard(
                 }
                 TextButton(onClick = onDisconnect, enabled = !busy) {
                     Text(stringResource(R.string.disconnect))
+                }
+            }
+            if (sync != null) {
+                Spacer(Modifier.height(20.dp))
+                Text(text = stringResource(R.string.tv_sync_library), style = MaterialTheme.typography.titleSmall)
+                Text(
+                    text =
+                        sync.lastSynced?.let {
+                            stringResource(
+                                R.string.tv_last_synced,
+                                DateUtils.getRelativeTimeSpanString(it, System.currentTimeMillis(), DateUtils.MINUTE_IN_MILLIS).toString(),
+                            )
+                        } ?: stringResource(R.string.tv_sync_library_desc),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.8f),
+                )
+                Spacer(Modifier.height(8.dp))
+                FilledTonalButton(onClick = sync.onSync, enabled = !sync.syncing) {
+                    Icon(painterResource(R.drawable.sync), contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text(stringResource(if (sync.syncing) R.string.tv_syncing_library else R.string.tv_sync_now))
+                }
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth().clickable { sync.onAutoSyncChange(!sync.autoSync) }.padding(top = 4.dp),
+                ) {
+                    Text(
+                        text = stringResource(R.string.tv_auto_sync_library),
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Switch(checked = sync.autoSync, onCheckedChange = sync.onAutoSyncChange)
                 }
             }
         }

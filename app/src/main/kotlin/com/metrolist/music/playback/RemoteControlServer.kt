@@ -35,15 +35,18 @@ import com.metrolist.music.models.MediaMetadata
 import com.metrolist.music.models.toMediaMetadata
 import com.metrolist.music.playback.queues.ListQueue
 import com.metrolist.music.playback.queues.YouTubeQueue
+import com.metrolist.music.playback.tv.LimitedInputStream
 import com.metrolist.music.playback.tv.PairFinishRequest
 import com.metrolist.music.playback.tv.PairFinishResponse
 import com.metrolist.music.playback.tv.PairStartRequest
+import com.metrolist.music.playback.tv.PairedDevice
 import com.metrolist.music.playback.tv.QueueSnapshot
 import com.metrolist.music.playback.tv.RemoteItemsRequest
 import com.metrolist.music.playback.tv.RemoteState
 import com.metrolist.music.playback.tv.RemoteTrack
 import com.metrolist.music.playback.tv.TvInfo
 import com.metrolist.music.playback.tv.TvPairing
+import com.metrolist.music.playback.tv.TvProfileStore
 import com.metrolist.music.playback.tv.toMediaMetadata
 import com.metrolist.music.playback.tv.toRemoteTrack
 import com.metrolist.music.ui.theme.DefaultThemeColor
@@ -57,6 +60,7 @@ import io.ktor.server.application.ApplicationCall
 import io.ktor.server.application.install
 import io.ktor.server.cio.CIO
 import io.ktor.server.engine.embeddedServer
+import io.ktor.server.request.receiveChannel
 import io.ktor.server.request.receiveText
 import io.ktor.server.response.respond
 import io.ktor.server.response.respondText
@@ -67,6 +71,7 @@ import io.ktor.server.websocket.WebSockets
 import io.ktor.server.websocket.webSocket
 import io.ktor.websocket.CloseReason
 import io.ktor.websocket.Frame
+import io.ktor.utils.io.jvm.javaio.toInputStream
 import io.ktor.websocket.close
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -87,6 +92,7 @@ import java.net.InetAddress
 import java.net.NetworkInterface
 import java.security.MessageDigest
 import java.util.concurrent.ConcurrentHashMap
+import java.util.zip.GZIPInputStream
 
 /**
  * LAN remote: serves assets/remote/index.html and a small JSON API. Browsers authenticate with
@@ -99,6 +105,7 @@ class RemoteControlServer(
     private val pairing: TvPairing?,
     private val tvId: String? = null,
     private val tvName: String? = null,
+    private val profiles: TvProfileStore? = null,
 ) {
     private val json = Json {
         encodeDefaults = true
@@ -213,6 +220,25 @@ class RemoteControlServer(
                     val ok = onMain { canControl() && addItems(request) }
                     call.respond(if (ok) HttpStatusCode.NoContent else HttpStatusCode.BadRequest)
                 }
+                // A paired phone's library, stored as that phone's profile. Body: (gzipped) LibrarySnapshot JSON.
+                post("/api/profile") {
+                    val profiles = profiles ?: return@post call.respond(HttpStatusCode.NotFound)
+                    val device = if (call.fromLan()) call.pairedDevice() else null
+                    if (device == null) return@post call.respond(HttpStatusCode.Forbidden)
+                    val gzipped = call.request.headers[HttpHeaders.ContentEncoding].equals("gzip", ignoreCase = true)
+                    val channel = call.receiveChannel()
+                    val library =
+                        withContext(Dispatchers.IO) {
+                            runCatching {
+                                LimitedInputStream(channel.toInputStream(), MAX_PROFILE_UPLOAD_BYTES).use { raw ->
+                                    val body = if (gzipped) LimitedInputStream(GZIPInputStream(raw), MAX_PROFILE_JSON_BYTES) else raw
+                                    TvProfileStore.decode(body.buffered())
+                                }
+                            }.getOrNull()
+                        } ?: return@post call.respond(HttpStatusCode.BadRequest)
+                    profiles.save(device.id, device.name, library.capped())
+                    call.respond(HttpStatusCode.NoContent)
+                }
                 webSocket("/api/ws") {
                     if (!call.hasAccess()) {
                         close(CloseReason(CloseReason.Codes.VIOLATED_POLICY, "forbidden"))
@@ -278,9 +304,11 @@ class RemoteControlServer(
             (address is Inet6Address && (address.address[0].toInt() and 0xFE) == 0xFC)
     }
 
-    private suspend fun ApplicationCall.hasPairedToken(): Boolean {
+    private suspend fun ApplicationCall.hasPairedToken(): Boolean = pairedDevice() != null
+
+    private suspend fun ApplicationCall.pairedDevice(): PairedDevice? {
         val token = request.headers[HttpHeaders.Authorization]?.removePrefix("Bearer")?.trim().orEmpty()
-        return pairing?.isAuthorized(token) == true
+        return pairing?.deviceFor(token)
     }
 
     private suspend fun ApplicationCall.hasAccess(): Boolean {
@@ -479,6 +507,8 @@ class RemoteControlServer(
 
     companion object {
         const val PORT = 8642
+        private const val MAX_PROFILE_UPLOAD_BYTES = 16L * 1024 * 1024
+        private const val MAX_PROFILE_JSON_BYTES = 64L * 1024 * 1024
         private const val PUSH_COALESCE_MS = 100L
         private val PUSHED_EVENTS =
             intArrayOf(

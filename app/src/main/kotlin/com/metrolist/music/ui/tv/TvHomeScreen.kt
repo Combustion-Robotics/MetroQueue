@@ -28,6 +28,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -44,8 +45,13 @@ import com.metrolist.music.R
 import com.metrolist.music.db.entities.LocalItem
 import com.metrolist.music.db.entities.Song
 import com.metrolist.music.playback.queues.YouTubeQueue
+import com.metrolist.music.models.MediaMetadata
 import com.metrolist.music.models.toMediaMetadata
+import com.metrolist.music.playback.tv.ProfilePlaylist
+import com.metrolist.music.playback.tv.toMediaMetadata
 import com.metrolist.music.viewmodels.HomeViewModel
+
+private const val PROFILE_ROW_SIZE = 30
 
 /** One row of the home feed; local and YouTube items are rendered by the same card. */
 private sealed interface HomeRow {
@@ -61,6 +67,19 @@ private sealed interface HomeRow {
         override val key: String,
         val title: String,
         val items: List<YTItem>,
+    ) : HomeRow
+
+    /** Songs from the active phone profile, e.g. its recent history. */
+    data class Tracks(
+        override val key: String,
+        val title: String,
+        val items: List<MediaMetadata>,
+    ) : HomeRow
+
+    data class ProfilePlaylists(
+        override val key: String,
+        val title: String,
+        val items: List<ProfilePlaylist>,
     ) : HomeRow
 }
 
@@ -79,19 +98,33 @@ fun TvHomeScreen(viewModel: HomeViewModel = hiltViewModel()) {
     val accountPlaylists by viewModel.accountPlaylists.collectAsStateWithLifecycle()
     val homePage by viewModel.homePage.collectAsStateWithLifecycle()
     val isLoading by viewModel.isLoading.collectAsStateWithLifecycle()
+    // With a phone profile selected, its history and playlists replace the TV's own local rows
+    val profile = rememberActiveProfile()
+    val profileHistory = remember(profile) { profile?.library?.history?.map { it.toMediaMetadata() } }
 
     val quickPicksTitle = stringResource(R.string.quick_picks)
     val keepListeningTitle = stringResource(R.string.keep_listening)
     val forgottenTitle = stringResource(R.string.forgotten_favorites)
     val playlistsTitle = stringResource(R.string.your_youtube_playlists)
     val similarTo = stringResource(R.string.similar_to)
+    val recentTitle = stringResource(R.string.tv_recently_played)
+    val profilePlaylistsTitle = stringResource(R.string.playlists)
 
     val rows =
         buildList {
-            quickPicks?.drop(1)?.takeIf { it.isNotEmpty() }?.let { add(HomeRow.Local("quick_picks", quickPicksTitle, it)) }
-            keepListening?.takeIf { it.isNotEmpty() }?.let { add(HomeRow.Local("keep_listening", keepListeningTitle, it)) }
-            accountPlaylists?.takeIf { it.isNotEmpty() }?.let { add(HomeRow.Remote("account_playlists", playlistsTitle, it)) }
-            forgottenFavorites?.takeIf { it.isNotEmpty() }?.let { add(HomeRow.Local("forgotten", forgottenTitle, it)) }
+            if (profile != null) {
+                profileHistory?.drop(1)?.take(PROFILE_ROW_SIZE)?.takeIf { it.isNotEmpty() }?.let {
+                    add(HomeRow.Tracks("profile_recent", recentTitle, it))
+                }
+                profile.library.playlists.takeIf { it.isNotEmpty() }?.let {
+                    add(HomeRow.ProfilePlaylists("profile_playlists", profilePlaylistsTitle, it))
+                }
+            } else {
+                quickPicks?.drop(1)?.takeIf { it.isNotEmpty() }?.let { add(HomeRow.Local("quick_picks", quickPicksTitle, it)) }
+                keepListening?.takeIf { it.isNotEmpty() }?.let { add(HomeRow.Local("keep_listening", keepListeningTitle, it)) }
+                accountPlaylists?.takeIf { it.isNotEmpty() }?.let { add(HomeRow.Remote("account_playlists", playlistsTitle, it)) }
+                forgottenFavorites?.takeIf { it.isNotEmpty() }?.let { add(HomeRow.Local("forgotten", forgottenTitle, it)) }
+            }
             similar?.forEach { recommendation ->
                 if (recommendation.items.isNotEmpty()) {
                     add(
@@ -108,7 +141,12 @@ fun TvHomeScreen(viewModel: HomeViewModel = hiltViewModel()) {
             }
         }.distinctBy { it.key }
 
-    val hero = quickPicks?.firstOrNull()
+    val hero =
+        if (profile != null) {
+            profileHistory?.firstOrNull()
+        } else {
+            quickPicks?.firstOrNull()?.toMediaMetadata()
+        }
     val focusMemory = rememberTvFocusMemory()
     val listState = rememberLazyListState()
 
@@ -138,8 +176,15 @@ fun TvHomeScreen(viewModel: HomeViewModel = hiltViewModel()) {
             item(key = "hero") {
                 TvHomeHero(
                     song = hero,
-                    onPlay = { tv.playList(quickPicksTitle, quickPicks.orEmpty()) },
-                    onRadio = { tv.play(YouTubeQueue.radio(hero.toMediaMetadata())) },
+                    label = if (profile != null) recentTitle else quickPicksTitle,
+                    onPlay = {
+                        if (profile != null) {
+                            tv.playTracks(recentTitle, profileHistory.orEmpty())
+                        } else {
+                            tv.playList(quickPicksTitle, quickPicks.orEmpty())
+                        }
+                    },
+                    onRadio = { tv.play(YouTubeQueue.radio(hero)) },
                     playModifier =
                         Modifier
                             .tvFocusMemory(focusMemory, "hero_play")
@@ -174,6 +219,28 @@ fun TvHomeScreen(viewModel: HomeViewModel = hiltViewModel()) {
                             modifier = Modifier.tvFocusMemory(focusMemory, "${row.key}/${item.id}"),
                         )
                     }
+                is HomeRow.Tracks ->
+                    TvRow(title = row.title, items = row.items, key = { it.id }) { item ->
+                        TvMediaCard(
+                            title = item.title,
+                            subtitle = item.artists.joinToString { it.name },
+                            thumbnailUrl = item.thumbnailUrl,
+                            active = item.id == playingId,
+                            onClick = { tv.playTrack(item) },
+                            modifier = Modifier.tvFocusMemory(focusMemory, "${row.key}/${item.id}"),
+                        )
+                    }
+                is HomeRow.ProfilePlaylists ->
+                    TvRow(title = row.title, items = row.items, key = { it.id }) { playlist ->
+                        TvMediaCard(
+                            title = playlist.name,
+                            subtitle = null,
+                            thumbnailUrl = playlist.thumbnail ?: playlist.songs.firstOrNull()?.thumb,
+                            placeholderIcon = R.drawable.queue_music,
+                            onClick = { tv.navigate(profilePlaylistRoute(playlist.id)) },
+                            modifier = Modifier.tvFocusMemory(focusMemory, "${row.key}/${playlist.id}"),
+                        )
+                    }
             }
         }
     }
@@ -182,7 +249,8 @@ fun TvHomeScreen(viewModel: HomeViewModel = hiltViewModel()) {
 /** The featured pick on top of Home: large artwork, title and the two main actions. */
 @Composable
 private fun TvHomeHero(
-    song: Song,
+    song: MediaMetadata,
+    label: String,
     onPlay: () -> Unit,
     onRadio: () -> Unit,
     playModifier: Modifier,
@@ -212,7 +280,7 @@ private fun TvHomeHero(
         Spacer(Modifier.width(32.dp))
         Column(Modifier.weight(1f)) {
             Text(
-                text = stringResource(R.string.quick_picks),
+                text = label,
                 style = MaterialTheme.typography.labelLarge,
                 color = MaterialTheme.colorScheme.primary,
             )

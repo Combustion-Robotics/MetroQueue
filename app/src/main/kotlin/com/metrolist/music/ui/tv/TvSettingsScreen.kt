@@ -5,17 +5,21 @@
 
 package com.metrolist.music.ui.tv
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -26,17 +30,22 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.metrolist.innertube.utils.parseCookieString
@@ -56,6 +65,7 @@ import com.metrolist.music.constants.PureBlackKey
 import com.metrolist.music.constants.RemoteControlEnabledKey
 import com.metrolist.music.constants.RemoteControlKeyKey
 import com.metrolist.music.playback.RemoteControlServer
+import com.metrolist.music.playback.tv.PairedDevice
 import com.metrolist.music.ui.menu.MixDurationRange
 import com.metrolist.music.ui.menu.mixModeLabel
 import com.metrolist.music.ui.menu.rememberMixSettings
@@ -89,6 +99,9 @@ fun TvSettingsScreen(accountViewModel: AccountSettingsViewModel = hiltViewModel(
     val remoteUrl = remember(remoteEnabled, remoteKey) { if (remoteEnabled && remoteKey.isNotEmpty()) RemoteControlServer.url(remoteKey) else null }
     val pairing = LocalPlayerConnection.current?.service?.tvPairing
     val pairedDevices = pairing?.devices?.collectAsStateWithLifecycle()?.value.orEmpty()
+    val profileStore = LocalTvProfiles.current
+    val profiles = profileStore?.profiles?.collectAsStateWithLifecycle()?.value.orEmpty()
+    var forgetting by remember { mutableStateOf<PairedDevice?>(null) }
     val dateFormat = remember { DateFormat.getDateInstance(DateFormat.MEDIUM) }
     var dynamicTheme by rememberPreference(DynamicThemeKey, true)
     var pureBlack by rememberPreference(PureBlackKey, false)
@@ -228,7 +241,7 @@ fun TvSettingsScreen(accountViewModel: AccountSettingsViewModel = hiltViewModel(
                     )
                     Spacer(Modifier.width(12.dp))
                     TvButton(
-                        onClick = { coroutineScope.launch { pairing.revoke(device.id) } },
+                        onClick = { forgetting = device },
                         icon = R.drawable.delete,
                         text = stringResource(R.string.tv_forget_device),
                         modifier = Modifier.tvFocusMemory(focusMemory, "forget_${device.id}"),
@@ -275,6 +288,28 @@ fun TvSettingsScreen(accountViewModel: AccountSettingsViewModel = hiltViewModel(
             )
         }
 
+        if (profiles.isNotEmpty()) {
+            item(key = "profiles_header") { SettingsHeader(stringResource(R.string.tv_profiles)) }
+            items(profiles, key = { "profile_${it.id}" }) { profile ->
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    SettingRow(
+                        icon = R.drawable.person,
+                        title = profile.name,
+                        description = stringResource(R.string.tv_profile_synced, relativeTime(profile.syncedAt)),
+                        onClick = { coroutineScope.launch { profileStore?.select(profile.id) } },
+                        modifier = Modifier.weight(1f).tvFocusMemory(focusMemory, "profile_${profile.id}"),
+                    )
+                    Spacer(Modifier.width(12.dp))
+                    TvButton(
+                        onClick = { coroutineScope.launch { profileStore?.delete(profile.id) } },
+                        icon = R.drawable.delete,
+                        text = stringResource(R.string.delete),
+                        modifier = Modifier.tvFocusMemory(focusMemory, "delete_profile_${profile.id}"),
+                    )
+                }
+            }
+        }
+
         item(key = "about_header") { SettingsHeader(stringResource(R.string.about)) }
         item(key = "about") {
             SettingRow(
@@ -284,6 +319,81 @@ fun TvSettingsScreen(accountViewModel: AccountSettingsViewModel = hiltViewModel(
                 onClick = {},
                 modifier = Modifier.tvFocusMemory(focusMemory, "about"),
             )
+        }
+    }
+
+    forgetting?.let { device ->
+        TvForgetPhoneDialog(
+            device = device,
+            hasProfile = profiles.any { it.id == device.id },
+            onForget = { deleteProfile ->
+                forgetting = null
+                coroutineScope.launch {
+                    pairing?.revoke(device.id)
+                    if (deleteProfile) profileStore?.delete(device.id)
+                }
+            },
+            onCancel = { forgetting = null },
+        )
+    }
+}
+
+/** Confirms forgetting a phone and asks whether its synced profile goes too. */
+@Composable
+private fun TvForgetPhoneDialog(
+    device: PairedDevice,
+    hasProfile: Boolean,
+    onForget: (deleteProfile: Boolean) -> Unit,
+    onCancel: () -> Unit,
+) {
+    Dialog(
+        onDismissRequest = onCancel,
+        properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
+    ) {
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.6f)),
+        ) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier =
+                    Modifier
+                        .widthIn(max = 720.dp)
+                        .background(MaterialTheme.colorScheme.surfaceContainerHigh, RoundedCornerShape(28.dp))
+                        .padding(horizontal = 48.dp, vertical = 40.dp),
+            ) {
+                Text(
+                    text = stringResource(R.string.tv_forget_title, device.name),
+                    style = MaterialTheme.typography.headlineSmall,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    textAlign = TextAlign.Center,
+                )
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    text = stringResource(if (hasProfile) R.string.tv_forget_profile_desc else R.string.tv_forget_desc),
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
+                )
+                Spacer(Modifier.height(32.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    if (hasProfile) {
+                        TvButton(
+                            onClick = { onForget(false) },
+                            text = stringResource(R.string.tv_forget_keep_profile),
+                            modifier = Modifier.tvInitialFocus(),
+                        )
+                        TvButton(onClick = { onForget(true) }, text = stringResource(R.string.tv_forget_delete_profile))
+                    } else {
+                        TvButton(
+                            onClick = { onForget(false) },
+                            text = stringResource(R.string.tv_forget_device),
+                            modifier = Modifier.tvInitialFocus(),
+                        )
+                    }
+                    TvButton(onClick = onCancel, text = stringResource(R.string.cancel))
+                }
+            }
         }
     }
 }

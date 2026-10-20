@@ -178,11 +178,12 @@ class TvPairing(
         return Result.Paired(token)
     }
 
-    suspend fun isAuthorized(token: String): Boolean {
-        if (token.isEmpty()) return false
+    /** The paired phone [token] belongs to, if any. */
+    suspend fun deviceFor(token: String): PairedDevice? {
+        if (token.isEmpty()) return null
         val tokenHash = hash(token)
         val devices = storedDevices.value ?: storedDevices.filterNotNull().first()
-        return devices.any { MessageDigest.isEqual(it.tokenHash.toByteArray(), tokenHash.toByteArray()) }
+        return devices.firstOrNull { MessageDigest.isEqual(it.tokenHash.toByteArray(), tokenHash.toByteArray()) }
     }
 
     suspend fun revoke(id: String) {

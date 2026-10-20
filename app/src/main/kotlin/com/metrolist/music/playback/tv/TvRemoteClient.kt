@@ -56,6 +56,20 @@ class TvRemoteClient(
         post("/api/items", json.encodeToString(request))
     }
 
+    /** Sends this phone's library (from [gzippedLibrarySnapshot]) to be kept as its profile on the TV. */
+    suspend fun uploadProfile(gzippedJson: ByteArray) {
+        val request =
+            request("/api/profile")
+                .header("Content-Encoding", "gzip")
+                .post(gzippedJson.toRequestBody(JSON))
+                .build()
+        withContext(Dispatchers.IO) {
+            uploadHttp.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) throw HttpException(response.code)
+            }
+        }
+    }
+
     suspend fun command(
         action: String,
         a: Long = 0L,
@@ -136,6 +150,13 @@ class TvRemoteClient(
                 .connectTimeout(4, TimeUnit.SECONDS)
                 .readTimeout(15, TimeUnit.SECONDS)
                 .writeTimeout(15, TimeUnit.SECONDS)
+                .build()
+
+        private val uploadHttp =
+            http
+                .newBuilder()
+                .readTimeout(60, TimeUnit.SECONDS)
+                .writeTimeout(60, TimeUnit.SECONDS)
                 .build()
 
         // The server pings every 15 s; OkHttp's own pings detect a dead TV from this side

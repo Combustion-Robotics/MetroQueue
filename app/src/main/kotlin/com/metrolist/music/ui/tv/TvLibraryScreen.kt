@@ -31,6 +31,11 @@ fun TvLibraryScreen(
     albumsViewModel: LibraryAlbumsViewModel = hiltViewModel(),
     artistsViewModel: LibraryArtistsViewModel = hiltViewModel(),
 ) {
+    val profile = rememberActiveProfile()
+    if (profile != null) {
+        TvProfileLibrary(profile)
+        return
+    }
     val tv = LocalTvController.current
     val playlists by playlistsViewModel.allPlaylists.collectAsStateWithLifecycle()
     val albums by albumsViewModel.allAlbums.collectAsStateWithLifecycle()
