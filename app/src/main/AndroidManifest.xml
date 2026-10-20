@@ -55,6 +55,7 @@
 
         <activity
             android:name=".MainActivity"
+            android:banner="@mipmap/tv_banner"
             android:exported="true"
             android:launchMode="singleTask"
             android:resizeableActivity="true"
