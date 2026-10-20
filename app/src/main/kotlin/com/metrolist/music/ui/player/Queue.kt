@@ -93,6 +93,8 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -1296,16 +1298,18 @@ fun Queue(
                             .only(WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal),
                     ).padding(12.dp),
         ) {
+            val toggleColors =
+                IconButtonDefaults.iconToggleButtonColors(
+                    contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                    checkedContainerColor = MaterialTheme.colorScheme.primary,
+                    checkedContentColor = MaterialTheme.colorScheme.onPrimary,
+                )
+
             IconToggleButton(
                 checked = shuffleModeEnabled,
                 enabled = !isListenTogetherGuest,
                 modifier = Modifier.align(Alignment.CenterStart),
-                colors =
-                    IconButtonDefaults.iconToggleButtonColors(
-                        contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                        checkedContainerColor = MaterialTheme.colorScheme.primary,
-                        checkedContentColor = MaterialTheme.colorScheme.onPrimary,
-                    ),
+                colors = toggleColors,
                 onCheckedChange = {
                     coroutineScope
                         .launch {
@@ -1330,24 +1334,30 @@ fun Queue(
                 modifier = Modifier.align(Alignment.Center),
             )
 
-            IconButton(
+            val repeatState =
+                stringResource(
+                    when (repeatMode) {
+                        Player.REPEAT_MODE_ONE -> R.string.repeat_mode_one
+                        Player.REPEAT_MODE_ALL -> R.string.repeat_mode_all
+                        else -> R.string.repeat_mode_off
+                    },
+                )
+            IconToggleButton(
+                checked = repeatMode != Player.REPEAT_MODE_OFF,
                 enabled = !isListenTogetherGuest,
-                modifier = Modifier.align(Alignment.CenterEnd),
-                onClick = playerConnection.player::toggleRepeatMode,
+                modifier =
+                    Modifier
+                        .align(Alignment.CenterEnd)
+                        .semantics { stateDescription = repeatState },
+                colors = toggleColors,
+                onCheckedChange = { playerConnection.player.toggleRepeatMode() },
             ) {
-                val baseAlpha = if (repeatMode == Player.REPEAT_MODE_OFF) 0.5f else 1f
-                val finalAlpha = if (!isListenTogetherGuest) baseAlpha else 0.3f
                 Icon(
                     painter =
                         painterResource(
-                            when (repeatMode) {
-                                Player.REPEAT_MODE_OFF, Player.REPEAT_MODE_ALL -> R.drawable.repeat
-                                Player.REPEAT_MODE_ONE -> R.drawable.repeat_one
-                                else -> throw IllegalStateException()
-                            },
+                            if (repeatMode == Player.REPEAT_MODE_ONE) R.drawable.repeat_one else R.drawable.repeat,
                         ),
-                    contentDescription = null,
-                    modifier = Modifier.alpha(finalAlpha),
+                    contentDescription = stringResource(R.string.repeat),
                 )
             }
         }

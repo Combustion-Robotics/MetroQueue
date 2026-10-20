@@ -226,6 +226,7 @@
     <string name="persistent_shuffle_desc">Keep shuffle enabled when starting new songs or playlists</string>
     <string name="remember_shuffle_and_repeat">Remember shuffle and repeat</string>
     <string name="remember_shuffle_and_repeat_desc">Remember shuffle and repeat settings when the app is restarted</string>
+    <string name="repeat">Repeat</string>
     <string name="percentage_format">%d%%</string>
 
     <string name="import_online">Import an M3U playlist</string>
