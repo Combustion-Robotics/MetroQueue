@@ -389,7 +389,7 @@ private fun TvEntryRow(
         },
         trailingContent =
             onForget?.let { forget ->
-                {
+                @Composable {
                     IconButton(onClick = forget) {
                         Icon(painterResource(R.drawable.delete), contentDescription = stringResource(R.string.tv_forget_device))
                     }
