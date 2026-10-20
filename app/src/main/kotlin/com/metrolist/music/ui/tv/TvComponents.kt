@@ -217,6 +217,7 @@ fun TvMediaCard(
     width: Dp = TvDimens.CardWidth,
     round: Boolean = false,
     active: Boolean = false,
+    placeholderIcon: Int = R.drawable.music_note,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val focused by interactionSource.collectIsFocusedAsState()
@@ -231,7 +232,7 @@ fun TvMediaCard(
             focusBorder = true,
             interactionSource = interactionSource,
         ) {
-            TvArtwork(url = thumbnailUrl, sizePx = 400, modifier = Modifier.fillMaxSize())
+            TvArtwork(url = thumbnailUrl, sizePx = 400, placeholderIcon = placeholderIcon, modifier = Modifier.fillMaxSize())
             if (active) {
                 Icon(
                     painter = painterResource(R.drawable.graphic_eq),
@@ -274,11 +275,12 @@ fun TvArtwork(
     url: String?,
     sizePx: Int,
     modifier: Modifier = Modifier,
+    placeholderIcon: Int = R.drawable.music_note,
 ) {
     if (url == null) {
         Box(modifier, contentAlignment = Alignment.Center) {
             Icon(
-                painter = painterResource(R.drawable.music_note),
+                painter = painterResource(placeholderIcon),
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.size(40.dp),
@@ -302,6 +304,7 @@ fun <T> TvRow(
     items: List<T>,
     key: (T) -> String,
     modifier: Modifier = Modifier,
+    leadingItem: (@Composable () -> Unit)? = null,
     itemContent: @Composable (T) -> Unit,
 ) {
     val distinctItems = remember(items) { items.distinctBy(key) }
@@ -317,6 +320,7 @@ fun <T> TvRow(
             horizontalArrangement = Arrangement.spacedBy(TvDimens.ItemSpacing),
             modifier = Modifier.focusRestorer(FocusRequester.Default),
         ) {
+            if (leadingItem != null) item(key = "tv_row_leading") { leadingItem() }
             items(distinctItems, key = key) { itemContent(it) }
         }
     }

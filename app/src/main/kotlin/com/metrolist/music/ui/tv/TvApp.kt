@@ -79,6 +79,7 @@ import com.metrolist.music.constants.AutoRadioQueueKey
 import com.metrolist.music.db.MusicDatabase
 import com.metrolist.music.playback.DownloadUtil
 import com.metrolist.music.playback.PlayerConnection
+import com.metrolist.music.ui.screens.LoginScreen
 import com.metrolist.music.utils.SearchRoutes
 import com.metrolist.music.utils.SyncUtils
 import com.metrolist.music.utils.rememberPreference
@@ -188,6 +189,29 @@ fun TvApp(
                         route = SearchRoutes.ROUTE,
                         arguments = listOf(navArgument("query") { type = NavType.StringType }),
                     ) { TvSearchResultScreen() }
+                    composable(TvTab.LIBRARY.route) { TvLibraryScreen() }
+                    composable(TvTab.SETTINGS.route) { TvSettingsScreen() }
+                    composable(
+                        route = "album/{albumId}",
+                        arguments = listOf(navArgument("albumId") { type = NavType.StringType }),
+                    ) { TvAlbumScreen() }
+                    composable(
+                        route = "artist/{artistId}",
+                        arguments = listOf(navArgument("artistId") { type = NavType.StringType }),
+                    ) { TvArtistScreen() }
+                    composable(
+                        route = "online_playlist/{playlistId}",
+                        arguments = listOf(navArgument("playlistId") { type = NavType.StringType }),
+                    ) { TvOnlinePlaylistScreen() }
+                    composable(
+                        route = "local_playlist/{playlistId}",
+                        arguments = listOf(navArgument("playlistId") { type = NavType.StringType }),
+                    ) { TvLocalPlaylistScreen() }
+                    composable(
+                        route = "auto_playlist/{playlist}",
+                        arguments = listOf(navArgument("playlist") { type = NavType.StringType }),
+                    ) { TvAutoPlaylistScreen() }
+                    composable("login") { LoginScreen(navController) }
                 }
             }
 
