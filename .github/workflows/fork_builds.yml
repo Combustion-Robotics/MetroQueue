@@ -4,10 +4,11 @@ name: Fork Builds
 # main -> "MetroQueue" (com.combustion.metroqueue): a normal release v<versionName> the first time a version is built.
 #         Bump versionName in app/build.gradle.kts to publish the next release.
 # dev  -> "MetroQueue Beta" (com.combustion.metroqueue.beta): the rolling "dev Builds" pre-release.
+# tv   -> "MetroQueue TV" (com.combustion.metroqueue.tv): APK artifact only, no release.
 # any other branch (e.g. mix) -> "MetroQueue Mix" (com.combustion.metroqueue.mix): APK artifact only, no release.
 on:
   push:
-    branches: ["main", "dev", "mix"]
+    branches: ["main", "dev", "mix", "tv"]
     paths-ignore:
       - "**.md"
       - "fastlane/**"
@@ -56,8 +57,8 @@ jobs:
         run: chmod +x gradlew && ./gradlew --console=plain :app:assembleFossRelease --warning-mode summary
         env:
           METROLIST_DEBUG_KEYSTORE_PATH: ci-debug.keystore
-          METROLIST_APPLICATION_ID: ${{ github.ref_name == 'dev' && 'com.combustion.metroqueue.beta' || github.ref_name != 'main' && 'com.combustion.metroqueue.mix' || '' }}
-          METROLIST_APP_NAME: ${{ github.ref_name == 'dev' && 'MetroQueue Beta' || github.ref_name != 'main' && 'MetroQueue Mix' || '' }}
+          METROLIST_APPLICATION_ID: ${{ github.ref_name == 'dev' && 'com.combustion.metroqueue.beta' || github.ref_name == 'tv' && 'com.combustion.metroqueue.tv' || github.ref_name != 'main' && 'com.combustion.metroqueue.mix' || '' }}
+          METROLIST_APP_NAME: ${{ github.ref_name == 'dev' && 'MetroQueue Beta' || github.ref_name == 'tv' && 'MetroQueue TV' || github.ref_name != 'main' && 'MetroQueue Mix' || '' }}
           METROLIST_BUILD_COMMIT: ${{ github.sha }}
           LASTFM_API_KEY: ${{ secrets.LASTFM_API_KEY }}
           LASTFM_SECRET: ${{ secrets.LASTFM_SECRET }}
@@ -73,6 +74,9 @@ jobs:
           elif [ "${{ github.ref_name }}" = "dev" ]; then
             TAG="dev-builds"
             APK="MetroQueue-Beta-v$VERSION-${GITHUB_SHA::7}.apk"
+          elif [ "${{ github.ref_name }}" = "tv" ]; then
+            TAG=""
+            APK="MetroQueue-TV-v$VERSION-${GITHUB_SHA::7}.apk"
           else
             TAG=""
             APK="MetroQueue-Mix-v$VERSION-${GITHUB_SHA::7}.apk"
