@@ -111,6 +111,7 @@ import com.metrolist.music.constants.TranslateLanguageKey
 import com.metrolist.music.constants.TranslateModeKey
 import com.metrolist.music.db.entities.LyricsEntity.Companion.LYRICS_NOT_FOUND
 import com.metrolist.music.lyrics.LyricsTranslationHelper
+import com.metrolist.music.lyrics.LyricsUtils
 import com.metrolist.music.lyrics.LyricsUtils.findActiveLineIndices
 import com.metrolist.music.lyrics.lyricsTextLooksSynced
 import com.metrolist.music.ui.component.shimmer.ShimmerHost
@@ -351,7 +352,31 @@ fun ExperimentalLyrics(
         
         var lastPlayerPos = playerConnection.player.currentPosition
         var lastUpdateTime = System.currentTimeMillis()
-        
+
+        // Adds the main line each active background line belongs to
+        fun withMainLines(indices: Set<Int>): Set<Int> {
+            val result = indices.toMutableSet()
+            for (i in indices) {
+                if (lines.getOrNull(i)?.isBackground == true) {
+                    for (j in i - 1 downTo 0) {
+                        if (lines.getOrNull(j)?.isBackground == false) {
+                            result.add(j)
+                            break
+                        }
+                    }
+                }
+            }
+            return result
+        }
+
+        val activeTracker = LyricsUtils.ActiveLineTracker(lines)
+        val scrollTracker = LyricsUtils.ActiveLineTracker(lines)
+        var lastInitialActiveIndices: Set<Int>? = null
+        var lastScrollActiveIndicesRaw: Set<Int>? = null
+        var newActiveIndices = emptySet<Int>()
+        var scrollActiveIndices = emptySet<Int>()
+        var scrollMax = -1
+
         while (isActive) {
             withFrameNanos { _ -> }
             val now = System.currentTimeMillis()
@@ -375,36 +400,21 @@ fun ExperimentalLyrics(
             val lyricsOffset = currentSong?.song?.lyricsOffset ?: 0
             val effectivePosition = position + lyricsOffset
             
-            val initialActiveIndices = findActiveLineIndices(lines, effectivePosition)
-            val scrollActiveIndicesRaw = findActiveLineIndices(lines, effectivePosition + (if (hasWordTimings) 0L else 250L))
-            
-            val scrollActiveIndices = scrollActiveIndicesRaw.toMutableSet()
-            for (i in scrollActiveIndicesRaw) {
-                if (lines.getOrNull(i)?.isBackground == true) {
-                    for (j in i - 1 downTo 0) {
-                        if (lines.getOrNull(j)?.isBackground == false) {
-                            scrollActiveIndices.add(j)
-                            break
-                        }
-                    }
-                }
-            }
-            
-            val newActiveIndices = initialActiveIndices.toMutableSet()
-            for (i in initialActiveIndices) {
-                if (lines.getOrNull(i)?.isBackground == true) {
-                    for (j in i - 1 downTo 0) {
-                        if (lines.getOrNull(j)?.isBackground == false) {
-                            newActiveIndices.add(j)
-                            break
-                        }
-                    }
-                }
-            }
+            val initialActiveIndices = activeTracker.activeAt(effectivePosition)
+            val scrollActiveIndicesRaw = if (hasWordTimings) initialActiveIndices else scrollTracker.activeAt(effectivePosition + 250L)
 
-            val scrollMax = scrollActiveIndices
-                .filter { lines.getOrNull(it)?.isBackground == false }
-                .maxOrNull() ?: (scrollActiveIndices.maxOrNull() ?: -1)
+            // The trackers return the same set until a line starts or ends, so these only rebuild then
+            if (scrollActiveIndicesRaw !== lastScrollActiveIndicesRaw) {
+                lastScrollActiveIndicesRaw = scrollActiveIndicesRaw
+                scrollActiveIndices = withMainLines(scrollActiveIndicesRaw)
+                scrollMax = scrollActiveIndices
+                    .filter { lines.getOrNull(it)?.isBackground == false }
+                    .maxOrNull() ?: (scrollActiveIndices.maxOrNull() ?: -1)
+            }
+            if (initialActiveIndices !== lastInitialActiveIndices) {
+                lastInitialActiveIndices = initialActiveIndices
+                newActiveIndices = withMainLines(initialActiveIndices)
+            }
 
             val isCurrentTargetStillActive = scrollTargetIndex in scrollActiveIndices
             val anyStillActive = scrollActiveIndices.isNotEmpty()

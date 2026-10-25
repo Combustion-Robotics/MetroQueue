@@ -831,16 +831,7 @@ object LyricsUtils {
             val line = lines[index]
             if (line.time > position) break // Past current position, stop early
 
-            // Determine this line's end time
-            val lineEndMs: Long = if (!line.words.isNullOrEmpty()) {
-                // Use last word's endTime converted to ms
-                (line.words.last().endTime * 1000).toLong()
-            } else {
-                // Fallback: next line's start time
-                if (index + 1 < lines.size) lines[index + 1].time else Long.MAX_VALUE
-            }
-
-            if (position <= lineEndMs) {
+            if (position <= lineEndMs(lines, index)) {
                 active.add(index)
             }
         }
@@ -854,6 +845,45 @@ object LyricsUtils {
         }
 
         return active
+    }
+
+    // The last word's end if word timings exist, otherwise the next line's start
+    private fun lineEndMs(lines: List<LyricsEntry>, index: Int): Long {
+        val words = lines[index].words
+        return if (!words.isNullOrEmpty()) {
+            (words.last().endTime * 1000).toLong()
+        } else if (index + 1 < lines.size) {
+            lines[index + 1].time
+        } else {
+            Long.MAX_VALUE
+        }
+    }
+
+    /**
+     * [findActiveLineIndices] for a position that moves in small steps: its result only changes
+     * where a line starts or ends, so it is reused until the position leaves the span between them.
+     */
+    class ActiveLineTracker(private val lines: List<LyricsEntry>) {
+        private var from = Long.MAX_VALUE
+        private var until = Long.MIN_VALUE
+        private var active = emptySet<Int>()
+
+        fun activeAt(position: Long): Set<Int> {
+            if (position >= from && position < until) return active
+            active = findActiveLineIndices(lines, position)
+            from = Long.MIN_VALUE
+            until = Long.MAX_VALUE
+            for (index in lines.indices) {
+                // A line turns active at its start and inactive just after its end
+                val start = lines[index].time
+                if (start <= position) from = maxOf(from, start) else until = minOf(until, start)
+                val end = lineEndMs(lines, index)
+                if (end != Long.MAX_VALUE) {
+                    if (end + 1 <= position) from = maxOf(from, end + 1) else until = minOf(until, end + 1)
+                }
+            }
+            return active
+        }
     }
 
     // TODO: Will be useful if we let the user pick the language, useless for now
