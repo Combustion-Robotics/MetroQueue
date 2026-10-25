@@ -86,6 +86,35 @@ private data class HyphenGroupWord(
 )
 
 private val GLOW_MAX_RADIUS = 12.dp
+private const val GLOW_MAX_ALPHA = 0.4f
+private const val GLOW_BASE_STRENGTH = 0.35f
+private const val GLOW_RELEASE_MS = 420.0
+
+/**
+ * Glow of one glyph: builds up while the fill sweeps across it, peaks as the fill edge leaves it
+ * and then fades, so it trails the edge and dies out shortly after the word ends.
+ */
+private fun glyphGlowLevel(positionMs: Long, word: WordTimestamp, indexInWord: Int, wordLength: Int): Float {
+    val startMs = word.startTime * 1000
+    // Same timing as the fill (see charLp), so the glow follows the visible edge
+    val durationMs = (word.endTime * 1000 - startMs).coerceAtLeast(100.0)
+    val glyphStartMs = startMs + durationMs * indexInWord / wordLength
+    val glyphEndMs = startMs + durationMs * (indexInWord + 1) / wordLength
+    val position = positionMs.toDouble()
+    return when {
+        position < glyphStartMs -> 0f
+        position < glyphEndMs -> ((position - glyphStartMs) / (glyphEndMs - glyphStartMs)).toFloat()
+        else -> (1.0 - (position - glyphEndMs) / GLOW_RELEASE_MS).toFloat().coerceAtLeast(0f)
+    }
+}
+
+/** How strongly a word glows: every sung word a little, long held words the most. */
+private fun wordGlowStrength(word: WordTimestamp): Float {
+    val durationMs = ((word.endTime - word.startTime) * 1000).toFloat()
+    val msPerChar = durationMs / word.text.length.coerceAtLeast(1)
+    val held = ((msPerChar - 100f) / 250f).coerceIn(0f, 1f) * 0.6f + ((durationMs - 300f) / 1500f).coerceIn(0f, 1f) * 0.4f
+    return GLOW_BASE_STRENGTH + (1f - GLOW_BASE_STRENGTH) * held
+}
 
 /**
  * Blurred copy of a glyph drawn under it. Radii are bucketed so each mask filter is created
@@ -739,8 +768,6 @@ private fun WordLevelLyrics(
                         ((wProg - cInW / wLen) * wLen).coerceIn(0.0, 1.0).toFloat()
                     } else 0f
 
-                    val shouldGlow = wordItem != null && !isWordSung && sungFactor > 0.001f
-
                     var crescendoDeltaX = 0f
                     var crescendoDeltaY = 0f
                     val groupWord = if (wordIdx != -1) hyphenGroupData[wordIdx] else null
@@ -805,24 +832,17 @@ private fun WordLevelLyrics(
                             )
                         }
                     }) {
-                        if (shouldGlow) {
-                            val sMs = wordItem.startTime * 1000
-                            val eMs = wordItem.endTime * 1000
-                            val dur = eMs - sMs
-                            val wordLenText = wordItem.text.length.coerceAtLeast(1)
-                            val impactRatio = dur.toFloat() / wordLenText
-                            val fadeFactor = (sungFactor * 5f).coerceIn(0f, 1f) * ((1f - sungFactor) * 8f).coerceIn(0f, 1f)
-                            val impactFactor = (((impactRatio - 100f) / 250f).coerceIn(0f, 1f) * 0.6f + ((dur.toFloat() - 300f) / 1500f).coerceIn(0f, 1f) * 0.4f).coerceIn(0f, 1f) * fadeFactor
-                            if (glyphGlow != null && impactFactor > 0.01f) {
-                                val glowAlpha = (0.35f * impactFactor).coerceIn(0f, 0.4f)
-                                val baseGlowRadius = GLOW_MAX_RADIUS.toPx() * impactFactor
+                        if (glyphGlow != null && wordItem != null) {
+                            val glowLevel = glyphGlowLevel(smoothPosition, wordItem, charInWordMap[i], wordLenMap[i])
+                            if (glowLevel > 0.01f) {
+                                val strength = wordGlowStrength(wordItem)
                                 drawIntoCanvas { canvas ->
                                     glyphGlow.draw(
                                         canvas.nativeCanvas,
                                         letterLayouts[i].layoutInput.text.text,
                                         letterLayouts[i].firstBaseline,
-                                        expressiveAccent.copy(alpha = glowAlpha).toArgb(),
-                                        baseGlowRadius,
+                                        expressiveAccent.copy(alpha = GLOW_MAX_ALPHA * strength * glowLevel).toArgb(),
+                                        GLOW_MAX_RADIUS.toPx() * (0.4f + 0.6f * strength),
                                     )
                                 }
                             }
