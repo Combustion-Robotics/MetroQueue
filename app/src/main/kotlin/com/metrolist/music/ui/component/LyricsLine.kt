@@ -6,6 +6,7 @@
 package com.metrolist.music.ui.component
 
 import android.graphics.BlurMaskFilter
+import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.Typeface
 import android.os.Build
@@ -47,6 +48,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.drawscope.clipRect
@@ -56,7 +58,10 @@ import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.graphics.BlurEffect
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.LinearGradientShader
 import androidx.compose.ui.graphics.RenderEffect
+import androidx.compose.ui.graphics.Shader
+import androidx.compose.ui.graphics.ShaderBrush
 import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.nativeCanvas
@@ -202,6 +207,23 @@ private class GlyphGlow(
     private companion object {
         const val RADIUS_STEPS = 8
     }
+}
+
+/**
+ * Accent fading to transparent over one unit, moved and stretched onto a glyph's fill edge before
+ * each draw, so the edge is one draw and the shader is built once per color.
+ */
+private class FillEdgeBrush(color: Color) : ShaderBrush() {
+    private val shader = LinearGradientShader(Offset.Zero, Offset(1f, 0f), listOf(color, color.copy(alpha = 0f)))
+    private val matrix = Matrix()
+
+    fun setEdge(startX: Float, width: Float) {
+        matrix.setScale(width, 1f)
+        matrix.postTranslate(startX, 0f)
+        shader.setLocalMatrix(matrix)
+    }
+
+    override fun createShader(size: Size): Shader = shader
 }
 
 /** Bounds and line of each grapheme cluster, read from the text layout once rather than every frame. */
@@ -567,6 +589,7 @@ private fun WordLevelLyrics(
         animationSpec = if (isActiveLine) snap() else tween(GLOW_RELEASE_MS.toInt(), easing = LinearEasing),
         label = "lyricsLineGlowTail",
     )
+    val fillEdgeBrush = remember(expressiveAccent) { FillEdgeBrush(expressiveAccent) }
     // Unit-radius gradient scaled to the text when drawn, so the shader is built once per color
     val haloBrush = remember(haloColor) {
         Brush.radialGradient(
@@ -1004,15 +1027,10 @@ private fun WordLevelLyrics(
                             val fXL = charWidth * charLp
                             val eW = (charWidth * 0.45f).coerceAtLeast(1f)
                             val sWL = (fXL - eW).coerceAtLeast(0f)
-                            if (sWL > 0f) {
-                                clipRect(left = 0f, top = 0f, right = sWL, bottom = charHeight) { drawText(letterLayouts[i], color = expressiveAccent) }
-                            }
-                            for (j in 0 until 12) {
-                                val start = sWL + (j * eW / 12f)
-                                val end = (sWL + ((j + 1) * eW / 12f) + 0.5f).coerceAtMost(fXL)
-                                if (end > start) {
-                                    clipRect(left = start, top = 0f, right = end, bottom = charHeight) { drawText(letterLayouts[i], color = expressiveAccent.copy(alpha = 1f - (j + 0.5f) / 12f)) }
-                                }
+                            // Solid up to sWL, then fading out over eW, cut off at the fill position
+                            fillEdgeBrush.setEdge(sWL, eW)
+                            clipRect(left = 0f, top = 0f, right = fXL, bottom = charHeight) {
+                                drawText(letterLayouts[i], brush = fillEdgeBrush, alpha = 1f)
                             }
                         }
                     }
