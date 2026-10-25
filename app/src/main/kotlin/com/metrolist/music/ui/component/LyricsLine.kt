@@ -11,8 +11,10 @@ import android.graphics.Typeface
 import android.os.Build
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -533,6 +535,12 @@ private fun WordLevelLyrics(
         animationSpec = tween(if (isActiveLine) 500 else 350),
         label = "lyricsLineHalo",
     )
+    // After the line ends its glyph glow keeps fading from where it was instead of vanishing
+    val glowTail by animateFloatAsState(
+        targetValue = if (isActiveLine) 1f else 0f,
+        animationSpec = if (isActiveLine) snap() else tween(GLOW_RELEASE_MS.toInt(), easing = LinearEasing),
+        label = "lyricsLineGlowTail",
+    )
     // Unit-radius gradient scaled to the text when drawn, so the shader is built once per color
     val haloBrush = remember(haloColor) {
         Brush.radialGradient(
@@ -607,6 +615,9 @@ private fun WordLevelLyrics(
     // as single units throughout the animation pipeline.
     val graphemeClusters = remember(mainText) { mainText.toGraphemeClusters() }
     val clusterCount = graphemeClusters.size
+    // Glow alpha and radius of each cluster in the last active frame, for the tail after the line ends
+    val glowAlphas = remember(graphemeClusters) { FloatArray(clusterCount) }
+    val glowRadii = remember(graphemeClusters) { FloatArray(clusterCount) }
     // For each cluster index, the String offset (Char index) of its first character in mainText.
     // Required because TextLayoutResult.getBoundingBox/getLineForOffset take
     // String offsets (UTF-16/Char indices), not cluster indices.
@@ -745,6 +756,25 @@ private fun WordLevelLyrics(
                 }
             }
             if (!isActiveLine) {
+                val tail = glowTail
+                if (glyphGlow != null && !drawWholeLine && tail > 0.01f) {
+                    for (i in 0 until clusterCount) {
+                        val alpha = glowAlphas[i] * tail
+                        if (alpha < 0.004f) continue
+                        val charBounds = layoutResult.getBoundingBox(clusterCharOffsets[i])
+                        translate(charBounds.left, charBounds.top) {
+                            drawIntoCanvas { canvas ->
+                                glyphGlow.draw(
+                                    canvas.nativeCanvas,
+                                    letterLayouts[i].layoutInput.text.text,
+                                    letterLayouts[i].firstBaseline,
+                                    expressiveAccent.copy(alpha = alpha).toArgb(),
+                                    glowRadii[i],
+                                )
+                            }
+                        }
+                    }
+                }
                 drawText(layoutResult, color = lineColor)
             } else {
                 if (drawWholeLine) {
@@ -862,6 +892,7 @@ private fun WordLevelLyrics(
                 val level = musicLevel()
                 val glowAlphaScale = 0.7f + 0.6f * level
                 val glowRadiusScale = 0.85f + 0.3f * level
+                val glowMaxRadiusPx = GLOW_MAX_RADIUS.toPx()
 
                 // Main drawing loop: iterate over cluster indices so each visual
                 // glyph (including multi-codepoint Devanagari clusters) is one unit.
@@ -927,17 +958,22 @@ private fun WordLevelLyrics(
                             )
                         }
                     }) {
+                        glowAlphas[i] = 0f
                         if (glyphGlow != null && wordItem != null) {
                             val glowLevel = glyphGlowLevel(smoothPosition, wordItem, charInWordMap[i], wordLenMap[i])
                             val strength = if (glowLevel > 0.01f) wordGlowStrength(wordItem, effects) else 0f
                             if (strength * glowLevel > 0.01f) {
+                                val glowAlpha = (GLOW_MAX_ALPHA * strength * glowLevel * glowAlphaScale).coerceAtMost(1f)
+                                val glowRadius = glowMaxRadiusPx * (0.4f + 0.6f * strength) * glowRadiusScale
+                                glowAlphas[i] = glowAlpha
+                                glowRadii[i] = glowRadius
                                 drawIntoCanvas { canvas ->
                                     glyphGlow.draw(
                                         canvas.nativeCanvas,
                                         letterLayouts[i].layoutInput.text.text,
                                         letterLayouts[i].firstBaseline,
-                                        expressiveAccent.copy(alpha = (GLOW_MAX_ALPHA * strength * glowLevel * glowAlphaScale).coerceAtMost(1f)).toArgb(),
-                                        GLOW_MAX_RADIUS.toPx() * (0.4f + 0.6f * strength) * glowRadiusScale,
+                                        expressiveAccent.copy(alpha = glowAlpha).toArgb(),
+                                        glowRadius,
                                     )
                                 }
                             }
