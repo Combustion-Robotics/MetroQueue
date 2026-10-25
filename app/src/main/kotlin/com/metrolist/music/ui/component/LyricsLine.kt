@@ -72,6 +72,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.metrolist.music.constants.LyricsEffects
 import com.metrolist.music.lyrics.LyricsEntry
 import com.metrolist.music.lyrics.WordTimestamp
 import com.metrolist.music.playback.PlayerConnection
@@ -126,12 +127,20 @@ private fun glyphGlowLevel(positionMs: Long, word: WordTimestamp, indexInWord: I
     }
 }
 
-/** How strongly a word glows: every sung word a little, long held words the most. */
-private fun wordGlowStrength(word: WordTimestamp): Float {
+/**
+ * How strongly a word glows: every sung word a little, long held words the most. Subtle tones
+ * it down; Off keeps only the glow of held words.
+ */
+private fun wordGlowStrength(word: WordTimestamp, effects: LyricsEffects): Float {
     val durationMs = ((word.endTime - word.startTime) * 1000).toFloat()
     val msPerChar = durationMs / word.text.length.coerceAtLeast(1)
     val held = ((msPerChar - 100f) / 250f).coerceIn(0f, 1f) * 0.6f + ((durationMs - 300f) / 1500f).coerceIn(0f, 1f) * 0.4f
-    return GLOW_BASE_STRENGTH + (1f - GLOW_BASE_STRENGTH) * held
+    val strength = GLOW_BASE_STRENGTH + (1f - GLOW_BASE_STRENGTH) * held
+    return when (effects) {
+        LyricsEffects.FULL -> strength
+        LyricsEffects.SUBTLE -> strength * 0.6f
+        LyricsEffects.OFF -> held
+    }
 }
 
 /**
@@ -218,6 +227,7 @@ internal fun LyricsLine(
     lyricsLineSpacing: Float,
     expressiveAccent: Color,
     haloColor: Color,
+    effects: LyricsEffects,
     lyricsTextPosition: LyricsPosition,
     respectAgentPositioning: Boolean,
     isAutoScrollEnabled: Boolean,
@@ -259,7 +269,7 @@ internal fun LyricsLine(
     // Lines around the current one are blurred and dimmed by their distance to it, for depth.
     // Off while the user scrolls or selects, where every line should be readable.
     val depthTarget = if (
-        isSynced && isAutoScrollEnabled && !isSelectionModeActive && !isActiveLine &&
+        effects == LyricsEffects.FULL && isSynced && isAutoScrollEnabled && !isSelectionModeActive && !isActiveLine &&
         !(item.isBackground && bgVisible) && displayedCurrentLineIndex >= 0
     ) {
         abs(index - displayedCurrentLineIndex).coerceAtMost(DEPTH_MAX_LINES).toFloat()
@@ -269,7 +279,7 @@ internal fun LyricsLine(
 
     // Drawn larger only, so the measured line heights and positions stay as they are
     val lineScale by animateFloatAsState(
-        targetValue = if (isSynced && isActiveLine && !item.isBackground) ACTIVE_LINE_SCALE else 1f,
+        targetValue = if (effects != LyricsEffects.OFF && isSynced && isActiveLine && !item.isBackground) ACTIVE_LINE_SCALE else 1f,
         animationSpec = spring(dampingRatio = 0.8f, stiffness = Spring.StiffnessLow),
         label = "lyricsLineScale",
     )
@@ -391,6 +401,7 @@ internal fun LyricsLine(
                         lineColor = lineColor,
                         expressiveAccent = expressiveAccent,
                         haloColor = haloColor,
+                        effects = effects,
                         isBackground = item.isBackground,
                         focusedAlpha = focusedAlpha,
                         alignment = agentTextAlign
@@ -456,6 +467,7 @@ private fun WordLevelLyrics(
     lineColor: Color,
     expressiveAccent: Color,
     haloColor: Color,
+    effects: LyricsEffects,
     isBackground: Boolean,
     focusedAlpha: Float,
     alignment: TextAlign
@@ -484,9 +496,10 @@ private fun WordLevelLyrics(
     }
     
     var smoothPosition by remember { mutableLongStateOf(currentPositionState + lyricsOffset) }
+    val motionScale = if (effects == LyricsEffects.OFF) 0.5f else 1f
 
     val haloLevel by animateFloatAsState(
-        targetValue = if (isActiveLine) 1f else 0f,
+        targetValue = if (isActiveLine && effects != LyricsEffects.OFF) 1f else 0f,
         animationSpec = tween(if (isActiveLine) 500 else 350),
         label = "lyricsLineHalo",
     )
@@ -775,7 +788,7 @@ private fun WordLevelLyrics(
                         if (timeSinceStart < 125f) timeSinceStart / 125f
                         else (1f - (timeSinceStart - 125f) / 625f).coerceAtLeast(0f)
                     } else 0f
-                    wordWobbles[wordIdx] = wobble
+                    wordWobbles[wordIdx] = wobble * motionScale
                 }
 
                 val lineCurrentPushes = FloatArray(layoutResult.lineCount)
@@ -913,7 +926,7 @@ private fun WordLevelLyrics(
                             val waveFade = (timeInGroup / 200f).coerceIn(0f, 1f) * (timeToGroupEnd / 200f).coerceIn(0f, 1f)
                             if (waveFade > 0.01f) {
                                 val waveSpeed = 0.006f
-                                val waveHeight = 3.24f
+                                val waveHeight = 3.24f * motionScale
                                 val phaseOffset = i * 0.4f
                                 waveOffset = sin(wallTime * waveSpeed + phaseOffset) * waveHeight * waveFade
                             }
@@ -930,8 +943,8 @@ private fun WordLevelLyrics(
                     }) {
                         if (glyphGlow != null && wordItem != null) {
                             val glowLevel = glyphGlowLevel(smoothPosition, wordItem, charInWordMap[i], wordLenMap[i])
-                            if (glowLevel > 0.01f) {
-                                val strength = wordGlowStrength(wordItem)
+                            val strength = if (glowLevel > 0.01f) wordGlowStrength(wordItem, effects) else 0f
+                            if (strength * glowLevel > 0.01f) {
                                 drawIntoCanvas { canvas ->
                                     glyphGlow.draw(
                                         canvas.nativeCanvas,

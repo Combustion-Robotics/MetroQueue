@@ -93,6 +93,7 @@ import com.metrolist.music.constants.AiSystemPromptKey
 import com.metrolist.music.constants.DeeplApiKey
 import com.metrolist.music.constants.DeeplFormalityKey
 import com.metrolist.music.constants.LyricsClickKey
+import com.metrolist.music.constants.LyricsEffects
 import com.metrolist.music.constants.LyricsRomanizeAsMainKey
 import com.metrolist.music.constants.LyricsRomanizeCyrillicByLineKey
 import com.metrolist.music.constants.LyricsRomanizeList
@@ -302,6 +303,7 @@ fun ExperimentalLyrics(
     // Follows the artwork when the dynamic theme is on
     val haloColor = MaterialTheme.colorScheme.primary
     val songBeat = rememberSongBeat(mediaMetadata?.id)
+    val lyricsEffects = rememberLyricsEffects()
     val playbackPositionProvider = remember(playerConnection) { { playerConnection.player.currentPosition } }
 
     var activeLineIndices by remember { mutableStateOf(emptySet<Int>()) }
@@ -753,7 +755,7 @@ fun ExperimentalLyrics(
                                             currentEffectivePosition >= listItem.gapStartMs &&
                                             currentEffectivePosition <= listItem.gapEndMs - 650L
                                     IntervalIndicator(listItem.gapStartMs, listItem.gapEndMs - 650L, currentEffectivePosition, visible, expressiveAccent,
-                                        songBeat, playbackPositionProvider,
+                                        songBeat, lyricsEffects != LyricsEffects.OFF, playbackPositionProvider,
                                         Modifier.fillMaxWidth().onSizeChanged { itemHeights[listIndex] = it.height }.padding(horizontal = 24.dp).wrapContentWidth(Alignment.CenterHorizontally))
                                 }
                                 is LyricsListItem.Line -> {
@@ -776,7 +778,7 @@ fun ExperimentalLyrics(
                                         isSelectionModeActive = isSelectionModeActive, currentPositionState = currentPositionState,
                                         lyricsOffset = (currentSong?.song?.lyricsOffset ?: 0).toLong(),
                                         playerConnection = playerConnection, lyricsTextSize = 36f, lyricsLineSpacing = 1.3f,
-                                        expressiveAccent = expressiveAccent, haloColor = haloColor,
+                                        expressiveAccent = expressiveAccent, haloColor = haloColor, effects = lyricsEffects,
                                         lyricsTextPosition = lyricsTextPosition,
                                         respectAgentPositioning = respectAgentPositioning, isAutoScrollEnabled = isAutoScrollEnabled,
                                         displayedCurrentLineIndex = deferredCurrentLineIndex, romanizeAsMain = romanizeAsMain,

@@ -53,6 +53,7 @@ internal fun IntervalIndicator(
     visible: Boolean,
     color: Color,
     beat: SongBeat?,
+    breathing: Boolean,
     playbackPositionProvider: () -> Long,
     modifier: Modifier = Modifier
 ) {
@@ -60,8 +61,9 @@ internal fun IntervalIndicator(
 
     // Follows the playback position, so it holds still while paused
     var breath by remember { mutableFloatStateOf(0f) }
-    LaunchedEffect(visible, beat) {
-        while (visible && isActive) {
+    LaunchedEffect(visible, beat, breathing) {
+        if (!breathing) breath = 0f
+        while (visible && breathing && isActive) {
             withFrameMillis { breath = beat.breath(playbackPositionProvider()) }
         }
     }

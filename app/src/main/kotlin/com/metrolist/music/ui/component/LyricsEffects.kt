@@ -5,12 +5,19 @@
 
 package com.metrolist.music.ui.component
 
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
+import android.os.PowerManager
 import androidx.compose.foundation.Canvas
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -22,14 +29,51 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.drawscope.withTransform
+import androidx.compose.ui.platform.LocalContext
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.metrolist.music.LocalPlayerConnection
+import com.metrolist.music.constants.LyricsEffects
+import com.metrolist.music.constants.LyricsEffectsKey
+import com.metrolist.music.utils.rememberEnumPreference
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.floor
 import kotlin.math.sin
+
+/** The chosen lyrics effects level; Full drops to Subtle while battery saver is on. */
+@Composable
+internal fun rememberLyricsEffects(): LyricsEffects {
+    val chosen by rememberEnumPreference(LyricsEffectsKey, LyricsEffects.FULL)
+    val powerSave = rememberPowerSaveMode()
+    return if (chosen == LyricsEffects.FULL && powerSave) LyricsEffects.SUBTLE else chosen
+}
+
+@Composable
+private fun rememberPowerSaveMode(): Boolean {
+    val context = LocalContext.current
+    val powerManager = remember(context) { context.getSystemService(PowerManager::class.java) }
+    var powerSave by remember { mutableStateOf(powerManager?.isPowerSaveMode == true) }
+    DisposableEffect(context, powerManager) {
+        val receiver =
+            object : BroadcastReceiver() {
+                override fun onReceive(context: Context?, intent: Intent?) {
+                    powerSave = powerManager?.isPowerSaveMode == true
+                }
+            }
+        ContextCompat.registerReceiver(
+            context,
+            receiver,
+            IntentFilter(PowerManager.ACTION_POWER_SAVE_MODE_CHANGED),
+            ContextCompat.RECEIVER_NOT_EXPORTED,
+        )
+        powerSave = powerManager?.isPowerSaveMode == true
+        onDispose { context.unregisterReceiver(receiver) }
+    }
+    return powerSave
+}
 
 private const val FALLBACK_BREATH_MS = 2400.0
 private const val TEMPO_RETRY_MS = 30_000L
@@ -92,12 +136,14 @@ private val BLOB_PHASE = floatArrayOf(0f, 2.1f, 4.2f)
 
 /**
  * Soft blobs of the artwork colors drifting slowly behind the lyrics, swelling a little on the
- * beat when the tempo is known. Plain radial gradients, no blur; it only moves while playing.
+ * beat when the tempo is known. Plain radial gradients, no blur; it only moves while playing
+ * and [animated].
  */
 @Composable
 internal fun LyricsAmbientBackground(
     colors: List<Color>,
     alpha: Float,
+    animated: Boolean,
     modifier: Modifier = Modifier,
 ) {
     val playerConnection = LocalPlayerConnection.current ?: return
@@ -122,8 +168,11 @@ internal fun LyricsAmbientBackground(
 
     var timeSec by remember { mutableFloatStateOf(0f) }
     var pulse by remember { mutableFloatStateOf(0f) }
-    LaunchedEffect(isPlaying, beat) {
-        if (!isPlaying) return@LaunchedEffect
+    LaunchedEffect(isPlaying, beat, animated) {
+        if (!isPlaying || !animated) {
+            pulse = 0f
+            return@LaunchedEffect
+        }
         var lastNanos = withFrameNanos { it }
         while (isActive) {
             withFrameNanos { now ->

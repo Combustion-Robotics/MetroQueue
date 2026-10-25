@@ -72,6 +72,8 @@ import com.metrolist.music.constants.LibraryFilter
 import com.metrolist.music.constants.ListenTogetherInTopBarKey
 import com.metrolist.music.constants.LyricsAnimationStyle
 import com.metrolist.music.constants.LyricsAnimationStyleKey
+import com.metrolist.music.constants.LyricsEffects
+import com.metrolist.music.constants.LyricsEffectsKey
 import com.metrolist.music.constants.LyricsClickKey
 import com.metrolist.music.constants.LyricsGlowEffectKey
 import com.metrolist.music.constants.LyricsLineSpacingKey
@@ -238,6 +240,8 @@ fun AppearanceSettings(
 
     var showExperimentalLyricsBetaDialog by remember { mutableStateOf(false) }
     var showLyricsAnimationStyleDialog by remember { mutableStateOf(false) }
+    val (lyricsEffects, onLyricsEffectsChange) = rememberEnumPreference(LyricsEffectsKey, defaultValue = LyricsEffects.FULL)
+    var showLyricsEffectsDialog by remember { mutableStateOf(false) }
     var showLyricsTextSizeDialog by remember { mutableStateOf(false) }
     var showLyricsLineSpacingDialog by remember { mutableStateOf(false) }
 
@@ -367,6 +371,26 @@ fun AppearanceSettings(
                     LyricsPosition.LEFT -> stringResource(R.string.left)
                     LyricsPosition.CENTER -> stringResource(R.string.center)
                     LyricsPosition.RIGHT -> stringResource(R.string.right)
+                }
+            },
+        )
+    }
+
+    if (showLyricsEffectsDialog) {
+        EnumDialog(
+            onDismiss = { showLyricsEffectsDialog = false },
+            onSelect = {
+                onLyricsEffectsChange(it)
+                showLyricsEffectsDialog = false
+            },
+            title = stringResource(R.string.lyrics_effects),
+            current = lyricsEffects,
+            values = LyricsEffects.entries,
+            valueText = {
+                when (it) {
+                    LyricsEffects.FULL -> stringResource(R.string.lyrics_effects_full)
+                    LyricsEffects.SUBTLE -> stringResource(R.string.lyrics_effects_subtle)
+                    LyricsEffects.OFF -> stringResource(R.string.lyrics_effects_off)
                 }
             },
         )
@@ -1378,6 +1402,25 @@ fun AppearanceSettings(
                             },
                         ),
                     )
+
+                    if (experimentalLyrics) {
+                        add(
+                            Material3SettingsItem(
+                                icon = painterResource(R.drawable.lyrics),
+                                title = { Text(stringResource(R.string.lyrics_effects)) },
+                                description = {
+                                    Text(
+                                        when (lyricsEffects) {
+                                            LyricsEffects.FULL -> stringResource(R.string.lyrics_effects_full_desc)
+                                            LyricsEffects.SUBTLE -> stringResource(R.string.lyrics_effects_subtle)
+                                            LyricsEffects.OFF -> stringResource(R.string.lyrics_effects_off)
+                                        },
+                                    )
+                                },
+                                onClick = { showLyricsEffectsDialog = true },
+                            ),
+                        )
+                    }
 
                     if (!experimentalLyrics) {
                         add(
