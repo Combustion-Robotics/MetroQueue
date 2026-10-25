@@ -5748,6 +5748,14 @@ class MusicService :
         durationHintMs: Long,
     ): MixAnalysisRepository.Outcome = mixAnalysisRepository().analysis(mediaId, region, durationHintMs, withWaveform = true)
 
+    /** Tempo and beat grid of [mediaId] if smart mix has already analysed it; nothing is analysed for this. */
+    suspend fun knownTempo(mediaId: String): MixAnalysis? {
+        val repository = mixAnalysisRepository()
+        return MixRegion.entries.firstNotNullOfOrNull { region ->
+            repository.storedAnalysis(mediaId, region)?.takeIf { it.hasConfidentTempo }
+        }
+    }
+
     /**
      * Seeks to shortly before the transition from [fromId] into [toId], to hear it. Ahead of it
      * ([fromId] playing with [toId] next) this uses the planned transition; once it has started or

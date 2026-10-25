@@ -9,6 +9,7 @@ import android.content.Context
 import android.os.Process
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.cache.Cache
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -120,6 +121,12 @@ class MixAnalysisRepository(
                 }
             }
         }
+
+    /** The stored analysis only; never decodes or analyses anything. */
+    suspend fun storedAnalysis(
+        mediaId: String,
+        region: MixRegion,
+    ): MixAnalysis? = withContext(Dispatchers.IO) { store.get(mediaId, region) }
 
     /**
      * Decodes [WAVEFORM_MS] for the waveform; the start of a song may only be cached a little past

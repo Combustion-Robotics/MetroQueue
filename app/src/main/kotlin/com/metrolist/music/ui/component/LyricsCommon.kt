@@ -18,15 +18,20 @@ import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameMillis
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import com.metrolist.music.lyrics.LyricsEntry
+import kotlinx.coroutines.isActive
+
+private const val BREATH_SCALE = 0.07f
 
 sealed class LyricsListItem {
     data class Line(val index: Int, val entry: LyricsEntry) : LyricsListItem()
@@ -47,9 +52,19 @@ internal fun IntervalIndicator(
     currentPositionMs: Long,
     visible: Boolean,
     color: Color,
+    beat: SongBeat?,
+    playbackPositionProvider: () -> Long,
     modifier: Modifier = Modifier
 ) {
     val alpha = remember { Animatable(0f) }
+
+    // Follows the playback position, so it holds still while paused
+    var breath by remember { mutableFloatStateOf(0f) }
+    LaunchedEffect(visible, beat) {
+        while (visible && isActive) {
+            withFrameMillis { breath = beat.breath(playbackPositionProvider()) }
+        }
+    }
     val rowHeightPx = remember { Animatable(0f) }
 
     LaunchedEffect(visible) {
@@ -89,7 +104,12 @@ internal fun IntervalIndicator(
             progress = { animatedProgress },
             modifier = Modifier
                 .size(36.dp)
-                .alpha(alpha.value),
+                .graphicsLayer {
+                    this.alpha = alpha.value
+                    val scale = 1f + BREATH_SCALE * breath
+                    scaleX = scale
+                    scaleY = scale
+                },
             color = color,
             trackColor = color.copy(alpha = 0.2f),
         )

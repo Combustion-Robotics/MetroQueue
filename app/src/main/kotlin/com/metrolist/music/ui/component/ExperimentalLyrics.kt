@@ -301,6 +301,8 @@ fun ExperimentalLyrics(
     }
     // Follows the artwork when the dynamic theme is on
     val haloColor = MaterialTheme.colorScheme.primary
+    val songBeat = rememberSongBeat(mediaMetadata?.id)
+    val playbackPositionProvider = remember(playerConnection) { { playerConnection.player.currentPosition } }
 
     var activeLineIndices by remember { mutableStateOf(emptySet<Int>()) }
     var scrollTargetIndex by rememberSaveable { mutableIntStateOf(-1) }
@@ -751,6 +753,7 @@ fun ExperimentalLyrics(
                                             currentEffectivePosition >= listItem.gapStartMs &&
                                             currentEffectivePosition <= listItem.gapEndMs - 650L
                                     IntervalIndicator(listItem.gapStartMs, listItem.gapEndMs - 650L, currentEffectivePosition, visible, expressiveAccent,
+                                        songBeat, playbackPositionProvider,
                                         Modifier.fillMaxWidth().onSizeChanged { itemHeights[listIndex] = it.height }.padding(horizontal = 24.dp).wrapContentWidth(Alignment.CenterHorizontally))
                                 }
                                 is LyricsListItem.Line -> {
