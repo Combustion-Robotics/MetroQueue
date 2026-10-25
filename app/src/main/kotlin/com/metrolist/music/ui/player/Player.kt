@@ -938,7 +938,8 @@ fun BottomSheetPlayer(
                                 PlayerBackgroundStyle.GRADIENT -> 0.3f
                                 PlayerBackgroundStyle.BLUR -> 0.2f
                             },
-                        animated = lyricsEffects == LyricsEffects.FULL,
+                        // Hidden while collapsed, so it stops there rather than redrawing every frame
+                        animated = lyricsEffects == LyricsEffects.FULL && !state.isCollapsed,
                         modifier = Modifier.fillMaxSize().alpha(backgroundAlpha),
                     )
                 }
