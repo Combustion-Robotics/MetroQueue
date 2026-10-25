@@ -732,13 +732,11 @@ private fun WordLevelLyrics(
             val halo = haloLevel
             if (halo > 0.01f && textBounds.width > 0f) {
                 val center = textBounds.center
+                val radiusX = textBounds.width / 2f + HALO_PADDING_X.toPx()
+                val radiusY = textBounds.height / 2f + HALO_PADDING_Y.toPx()
                 withTransform({
                     translate(center.x, center.y)
-                    scale(
-                        scaleX = textBounds.width / 2f + HALO_PADDING_X.toPx(),
-                        scaleY = textBounds.height / 2f + HALO_PADDING_Y.toPx(),
-                        pivot = Offset.Zero,
-                    )
+                    scale(radiusX, radiusY, pivot = Offset.Zero)
                 }) {
                     drawCircle(haloBrush, radius = 1f, center = Offset.Zero, alpha = HALO_ALPHA * halo)
                 }
@@ -856,6 +854,8 @@ private fun WordLevelLyrics(
                     lineTotalPushes[lineIdx] += charBounds.width * (charScaleX - 1f)
                 }
 
+                val waveHeightPx = WAVE_HEIGHT.toPx() * motionScale
+
                 // Main drawing loop: iterate over cluster indices so each visual
                 // glyph (including multi-codepoint Devanagari clusters) is one unit.
                 for (i in 0 until clusterCount) {
@@ -906,9 +906,8 @@ private fun WordLevelLyrics(
                             val waveFade = (timeInGroup / 200f).coerceIn(0f, 1f) * (timeToGroupEnd / 200f).coerceIn(0f, 1f)
                             if (waveFade > 0.01f) {
                                 val waveSpeed = 0.006f
-                                val waveHeight = WAVE_HEIGHT.toPx() * motionScale
                                 val phaseOffset = i * 0.4f
-                                waveOffset = sin(wallTime * waveSpeed + phaseOffset) * waveHeight * waveFade
+                                waveOffset = sin(wallTime * waveSpeed + phaseOffset) * waveHeightPx * waveFade
                             }
                         }
 
