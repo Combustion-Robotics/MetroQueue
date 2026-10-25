@@ -522,9 +522,9 @@ fun ExperimentalLyrics(
     }
 
     val lifecycleOwner = LocalLifecycleOwner.current
-    DisposableEffect(showLyrics) {
+    DisposableEffect(showLyrics, isPlaying) {
         val activity = context as? Activity
-        if (showLyrics) activity?.window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        if (showLyrics && isPlaying) activity?.window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         onDispose { activity?.window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON) }
     }
 
