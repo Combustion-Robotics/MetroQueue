@@ -6,8 +6,6 @@
 package com.metrolist.music.ui.component
 
 import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.height
@@ -49,7 +47,7 @@ sealed class LyricsListItem {
 internal fun IntervalIndicator(
     gapStartMs: Long,
     gapEndMs: Long,
-    currentPositionMs: Long,
+    currentPositionMs: () -> Long,
     visible: Boolean,
     color: Color,
     beat: SongBeat?,
@@ -82,16 +80,6 @@ internal fun IntervalIndicator(
     val density = LocalDensity.current
     val targetHeightDp = 72.dp
 
-    val progress = if (gapEndMs > gapStartMs) {
-        ((currentPositionMs - gapStartMs).toFloat() / (gapEndMs - gapStartMs).toFloat()).coerceIn(0f, 1f)
-    } else 0f
-
-    val animatedProgress by animateFloatAsState(
-        targetValue = progress,
-        animationSpec = tween(durationMillis = 100, easing = LinearEasing),
-        label = "intervalProgress"
-    )
-
     Box(
         modifier = modifier
             .height(targetHeightDp * rowHeightPx.value)
@@ -103,7 +91,12 @@ internal fun IntervalIndicator(
         contentAlignment = Alignment.Center
     ) {
         CircularWavyProgressIndicator(
-            progress = { animatedProgress },
+            // Read while drawing; hidden indicators skip the position so they aren't redrawn every frame
+            progress = {
+                if ((visible || alpha.value > 0f) && gapEndMs > gapStartMs) {
+                    ((currentPositionMs() - gapStartMs).toFloat() / (gapEndMs - gapStartMs).toFloat()).coerceIn(0f, 1f)
+                } else 0f
+            },
             modifier = Modifier
                 .size(36.dp)
                 .graphicsLayer {

@@ -40,6 +40,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.runtime.withFrameMillis
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -249,7 +250,7 @@ internal fun LyricsLine(
     bgVisible: Boolean,
     isSelected: Boolean,
     isSelectionModeActive: Boolean,
-    currentPositionState: Long,
+    currentPosition: () -> Long,
     lyricsOffset: Long,
     playerConnection: PlayerConnection,
     lyricsTextSize: Float,
@@ -424,7 +425,7 @@ internal fun LyricsLine(
                         mainText = mainText,
                         words = effectiveWords,
                         isActiveLine = isActiveLine,
-                        currentPositionState = currentPositionState,
+                        currentPosition = currentPosition,
                         lyricsOffset = lyricsOffset,
                         playerConnection = playerConnection,
                         lyricStyle = lyricStyle,
@@ -491,7 +492,7 @@ private fun WordLevelLyrics(
     mainText: String,
     words: List<WordTimestamp>,
     isActiveLine: Boolean,
-    currentPositionState: Long,
+    currentPosition: () -> Long,
     lyricsOffset: Long,
     playerConnection: PlayerConnection,
     lyricStyle: TextStyle,
@@ -527,7 +528,11 @@ private fun WordLevelLyrics(
         )
     }
     
-    var smoothPosition by remember { mutableLongStateOf(currentPositionState + lyricsOffset) }
+    // Read only in the Canvas. Starts from the shared position whenever the line turns (in)active,
+    // without subscribing this composition to it; the active line then runs its own frame clock.
+    var smoothPosition by remember(isActiveLine) {
+        mutableLongStateOf(Snapshot.withoutReadObservation { currentPosition() } + lyricsOffset)
+    }
     val motionScale = if (effects == LyricsEffects.OFF) 0.5f else 1f
 
     val haloLevel by animateFloatAsState(
@@ -568,12 +573,6 @@ private fun WordLevelLyrics(
                     smoothPosition = lastPlayerPos + lyricsOffset + (if (playerConnection.player.isPlaying) elapsed else 0)
                 }
             }
-        }
-    }
-    
-    LaunchedEffect(isActiveLine, currentPositionState) {
-        if (!isActiveLine) {
-            smoothPosition = currentPositionState + lyricsOffset
         }
     }
 
