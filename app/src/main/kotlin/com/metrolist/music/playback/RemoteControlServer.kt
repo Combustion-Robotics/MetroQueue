@@ -445,14 +445,16 @@ class RemoteControlServer(
             "toggle" -> player.togglePlayPause()
             "resume" -> player.resume()
             "pause" -> player.pause()
-            "next" -> {
-                player.seekToNext()
-                player.resume()
-            }
-            "prev" -> {
-                player.seekToPrevious()
-                player.resume()
-            }
+            "next" ->
+                if (!service.skipWithCrossfade(toNext = true)) {
+                    player.seekToNext()
+                    player.resume()
+                }
+            "prev" ->
+                if (!service.skipWithCrossfade(toNext = false)) {
+                    player.seekToPrevious()
+                    player.resume()
+                }
             "seek" -> player.seekTo(a)
             "volume" -> service.playerVolume.value = (a / 100f).coerceIn(0f, 1f)
             "shuffle" -> player.shuffleModeEnabled = !player.shuffleModeEnabled

@@ -366,7 +366,7 @@
     <string name="crossfade_gapless">Disable for gapless albums</string>
     <string name="crossfade_gapless_desc">Skip crossfade for albums designed to play without gaps</string>
     <string name="crossfade_on_skip">Crossfade on manual skip</string>
-    <string name="crossfade_on_skip_desc">Blend into the next or previous song over up to 3 seconds when you skip</string>
+    <string name="crossfade_on_skip_desc">Quickly blend into the next or previous song when you skip</string>
     <string name="mix_settings">Mix</string>
     <string name="mix_mode">Mode</string>
     <string name="mix_mode_off">Off</string>

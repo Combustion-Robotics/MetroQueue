@@ -222,6 +222,7 @@ import com.metrolist.music.playback.audio.TransitionFxAudioProcessor
 import com.metrolist.music.playback.mix.CustomTransition
 import com.metrolist.music.playback.mix.CustomTransitionPlanner
 import com.metrolist.music.playback.mix.CustomTransitionRepository
+import com.metrolist.music.playback.mix.ManualSkipPolicy
 import com.metrolist.music.playback.mix.MixAnalysis
 import com.metrolist.music.playback.mix.MixAnalysisRepository
 import com.metrolist.music.playback.mix.MixAudioDecoder
@@ -361,6 +362,9 @@ class MusicService :
     private var crossfadeDuration = DEFAULT_CROSSFADE_DURATION * 1000f
     private var crossfadeGapless = DEFAULT_CROSSFADE_GAPLESS
     private var crossfadeOnSkip = DEFAULT_CROSSFADE_ON_SKIP
+
+    // elapsedRealtime of the last time the user changed song (skip, queue tap, swipe)
+    private var lastManualSkipAtMs: Long? = null
     private var mixTransitionStyle = DEFAULT_MIX_TRANSITION_STYLE
     private var smartMixEnabled = false
     private var crossfadeMessage: PlayerMessage? = null
@@ -5208,6 +5212,11 @@ class MusicService :
         reason: Int,
     ) {
         if (reason == Player.DISCONTINUITY_REASON_SEEK) {
+            if (oldPosition.mediaItemIndex != newPosition.mediaItemIndex) {
+                // Plain skips and queue taps count towards rapid skipping too, and never keep a nudged tempo
+                lastManualSkipAtMs = SystemClock.elapsedRealtime()
+                endTempoNudge(gradual = false)
+            }
             if (isCrossfading) cleanupCrossfade(reschedule = false)
             // Re-measure the tail from the new position
             tailMeteredPlayer = null
@@ -5707,13 +5716,23 @@ class MusicService :
     }
 
     /**
-     * Performs a user-initiated next/previous as a short crossfade when "Crossfade on manual skip"
-     * is on. Returns false when the caller should skip normally instead (setting off, paused,
-     * casting, Listen Together, nothing to skip to, or previous that would restart the song).
+     * Performs a user-initiated next/previous as a short fade when "Crossfade on manual skip" is
+     * on. Returns false when the caller should skip normally instead (setting off, paused,
+     * casting, Listen Together, nothing to skip to, previous that would restart the song, or a
+     * skip right after another one). A running transition is cut first, so the skip that follows
+     * never overlaps it.
      */
     fun skipWithCrossfade(toNext: Boolean): Boolean {
+        if (!::player.isInitialized) return false
+        val now = SystemClock.elapsedRealtime()
+        val blend = ManualSkipPolicy.shouldBlend(now, lastManualSkipAtMs, transitionRunning = isCrossfading)
+        lastManualSkipAtMs = now
+        if (isCrossfading) cleanupCrossfade()
+        endTempoNudge(gradual = false)
+        if (!blend) return false
+
         if (!crossfadeOnSkip || !crossfadeEnabled || crossfadeDuration <= 0f || taskCleared) return false
-        if (!::player.isInitialized || !player.isPlaying) return false
+        if (!player.isPlaying) return false
         if (castConnectionHandler?.isCasting?.value == true) return false
         // "Pause at end of song" keeps its normal skip behaviour
         if (sleepTimer?.pauseWhenSongEnd == true) return false
@@ -5726,14 +5745,19 @@ class MusicService :
             }
         if (targetIndex == C.INDEX_UNSET) return false
         // A cut is what a normal skip already does
-        val style = configuredTransitionStyle()
-        if (style == TransitionStyle.CUT) return false
+        if (configuredTransitionStyle() == TransitionStyle.CUT) return false
 
+        // A next song pre-buffered at a custom entry point deep into it starts from the top instead
+        val prebufferedFarIn =
+            secondaryTargetMediaId == player.getMediaItemAt(targetIndex).mediaId &&
+                (secondaryPlayer?.currentPosition ?: 0L) > INTRO_SKIP_MAX_MS
+        // Skips always get a quick plain fade; effect styles and smart timing are for automatic transitions
         val plan =
             TransitionPlan(
                 startPositionMs = player.currentPosition,
-                durationMs = crossfadeDuration.toLong().coerceAtMost(MANUAL_SKIP_CROSSFADE_MAX_MS),
-                style = style,
+                durationMs = ManualSkipPolicy.blendDurationMs(crossfadeDuration.toLong()),
+                incomingStartMs = if (prebufferedFarIn) 0L else null,
+                style = TransitionStyle.FADE,
                 allowEarlyStart = false,
             )
         return startCrossfade(targetIndex, plan, Player.MEDIA_ITEM_TRANSITION_REASON_SEEK)
@@ -6038,6 +6062,13 @@ class MusicService :
 
         crossfadeJob =
             scope.launch {
+                // A skip doesn't hold on to the old song while the new one buffers: cut to it instead
+                if (transitionReason == Player.MEDIA_ITEM_TRANSITION_REASON_SEEK &&
+                    withTimeoutOrNull(MANUAL_SKIP_START_TIMEOUT_MS) { while (!player.isPlaying) delay(50) } == null
+                ) {
+                    cleanupCrossfade()
+                    return@launch
+                }
                 val speed = fadingPlayer?.playbackParameters?.speed?.coerceAtLeast(0.01f) ?: 1f
                 val stepTime = (plan.durationMs / speed).toLong() / CROSSFADE_STEPS
 
@@ -6149,7 +6180,7 @@ class MusicService :
         const val MAX_RETRY_COUNT = 10
 
         private const val CROSSFADE_STEPS = 20
-        private const val MANUAL_SKIP_CROSSFADE_MAX_MS = 3_000L
+        private const val MANUAL_SKIP_START_TIMEOUT_MS = 500L
         private const val CUT_END_MARGIN_MS = 150L
 
         // Same rule as PlayerConnection.seekToPrevious and Media3's default: later than this restarts the song
