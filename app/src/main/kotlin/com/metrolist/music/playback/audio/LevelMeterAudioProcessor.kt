@@ -18,7 +18,8 @@ import kotlin.math.sqrt
  * PCM16 pass-through processor that measures levels for crossfade timing, only while armed:
  * - tail metering: how long the track has stayed well below the loudest part of its tail
  *   (a fade-out) or near silence, so a transition can start where the song audibly ends;
- * - intro scan: how much silence the stream starts with, so it can be skipped.
+ * - intro scan: how much silence the stream starts with, so it can be skipped;
+ * - current level: RMS of the latest buffer, for visuals that follow the music.
  *
  * Arming happens on the main thread and bumps a generation; the playback thread resets its
  * state when it sees a new one. Results are packed with their generation into single volatile
@@ -50,6 +51,10 @@ class LevelMeterAudioProcessor : BaseAudioProcessor() {
     @Volatile private var silentResult = 0L
 
     @Volatile private var introResult = 0L
+
+    @Volatile private var levelArmed = false
+
+    @Volatile private var latestLevel = 0f
 
     // Playback thread only
     private var seenTailGeneration = -1
@@ -86,6 +91,18 @@ class LevelMeterAudioProcessor : BaseAudioProcessor() {
         introArmed = false
     }
 
+    fun startLevelMetering() {
+        levelArmed = true
+    }
+
+    fun stopLevelMetering() {
+        levelArmed = false
+        latestLevel = 0f
+    }
+
+    /** RMS of the latest buffer, 0..1; 0 while not metering or nothing plays through this processor. */
+    fun level(): Float = latestLevel
+
     fun introScan(): IntroScan {
         val result = introResult
         if ((result ushr 32).toInt() != introGeneration) return IntroScan(0L, false)
@@ -112,10 +129,11 @@ class LevelMeterAudioProcessor : BaseAudioProcessor() {
         val remaining = inputBuffer.remaining()
         if (remaining == 0) return
 
-        if (tailArmed || introArmed) {
+        if (tailArmed || introArmed || levelArmed) {
             inputBuffer.order(ByteOrder.LITTLE_ENDIAN)
             if (tailArmed) measureTail(inputBuffer)
             if (introArmed) scanIntro(inputBuffer)
+            if (levelArmed) measureLevel(inputBuffer)
         }
 
         replaceOutputBuffer(remaining).apply {
@@ -144,6 +162,21 @@ class LevelMeterAudioProcessor : BaseAudioProcessor() {
         val tag = generation.toLong() shl 32
         quietResult = tag or framesToMs(quietFrames)
         silentResult = tag or framesToMs(silentFrames)
+    }
+
+    // Every LEVEL_STRIDE-th sample is plenty for a visual level and keeps this cheap
+    private fun measureLevel(buffer: ByteBuffer) {
+        val limit = buffer.limit()
+        var index = buffer.position()
+        var sumSquares = 0.0
+        var count = 0
+        while (index + 1 < limit) {
+            val sample = buffer.getShort(index).toInt()
+            sumSquares += (sample * sample).toDouble()
+            count++
+            index += 2 * LEVEL_STRIDE
+        }
+        if (count > 0) latestLevel = (sqrt(sumSquares / count) / Short.MAX_VALUE).toFloat()
     }
 
     private fun closeWindow() {
@@ -212,6 +245,8 @@ class LevelMeterAudioProcessor : BaseAudioProcessor() {
 
     private companion object {
         const val WINDOW_MS = 200
+
+        const val LEVEL_STRIDE = 4
 
         // Roughly -15 dB below the loudest window of the tail counts as faded out
         const val QUIET_RATIO = 0.18

@@ -255,6 +255,7 @@ internal fun LyricsLine(
     expressiveAccent: Color,
     haloColor: Color,
     effects: LyricsEffects,
+    musicLevel: () -> Float,
     lyricsTextPosition: LyricsPosition,
     respectAgentPositioning: Boolean,
     isAutoScrollEnabled: Boolean,
@@ -429,6 +430,7 @@ internal fun LyricsLine(
                         expressiveAccent = expressiveAccent,
                         haloColor = haloColor,
                         effects = effects,
+                        musicLevel = musicLevel,
                         isBackground = item.isBackground,
                         focusedAlpha = focusedAlpha,
                         alignment = agentTextAlign
@@ -495,6 +497,7 @@ private fun WordLevelLyrics(
     expressiveAccent: Color,
     haloColor: Color,
     effects: LyricsEffects,
+    musicLevel: () -> Float,
     isBackground: Boolean,
     focusedAlpha: Float,
     alignment: TextAlign
@@ -855,6 +858,10 @@ private fun WordLevelLyrics(
                 }
 
                 val waveHeightPx = WAVE_HEIGHT.toPx() * motionScale
+                // Neutral (0.5) leaves the glow as it is; louder passages brighten and widen it a little
+                val level = musicLevel()
+                val glowAlphaScale = 0.7f + 0.6f * level
+                val glowRadiusScale = 0.85f + 0.3f * level
 
                 // Main drawing loop: iterate over cluster indices so each visual
                 // glyph (including multi-codepoint Devanagari clusters) is one unit.
@@ -929,8 +936,8 @@ private fun WordLevelLyrics(
                                         canvas.nativeCanvas,
                                         letterLayouts[i].layoutInput.text.text,
                                         letterLayouts[i].firstBaseline,
-                                        expressiveAccent.copy(alpha = GLOW_MAX_ALPHA * strength * glowLevel).toArgb(),
-                                        GLOW_MAX_RADIUS.toPx() * (0.4f + 0.6f * strength),
+                                        expressiveAccent.copy(alpha = (GLOW_MAX_ALPHA * strength * glowLevel * glowAlphaScale).coerceAtMost(1f)).toArgb(),
+                                        GLOW_MAX_RADIUS.toPx() * (0.4f + 0.6f * strength) * glowRadiusScale,
                                     )
                                 }
                             }

@@ -538,6 +538,7 @@ class MusicService :
 
     private val playerSilenceProcessors = HashMap<Player, SilenceDetectorAudioProcessor>()
     private val playerLevelMeters = HashMap<Player, LevelMeterAudioProcessor>()
+    private var audioLevelMetering = false
     private val playerTransitionFx = HashMap<Player, TransitionFxAudioProcessor>()
 
     private val instantSilenceSkipEnabled = MutableStateFlow(false)
@@ -1564,6 +1565,7 @@ class MusicService :
         playerNormalizationProcessors[player] = normalizationProcessor
         playerSilenceProcessors[player] = silenceProcessor
         playerLevelMeters[player] = levelMeter
+        if (audioLevelMetering) levelMeter.startLevelMetering()
         playerTransitionFx[player] = transitionFx
         playerEqualizerProcessors[player] = eqProcessor
         equalizerService.addAudioProcessor(eqProcessor)
@@ -5747,6 +5749,16 @@ class MusicService :
         region: MixRegion,
         durationHintMs: Long,
     ): MixAnalysisRepository.Outcome = mixAnalysisRepository().analysis(mediaId, region, durationHintMs, withWaveform = true)
+
+    /** Lets [audioLevel] follow the music; a little extra audio-thread work, so only while something shows it. */
+    fun setAudioLevelMetering(enabled: Boolean) {
+        if (audioLevelMetering == enabled) return
+        audioLevelMetering = enabled
+        playerLevelMeters.values.forEach { if (enabled) it.startLevelMetering() else it.stopLevelMetering() }
+    }
+
+    /** Level of the audio playing now, 0..1, while [setAudioLevelMetering] is on; 0 when unknown. */
+    fun audioLevel(): Float = playerLevelMeters[player]?.level() ?: 0f
 
     /** Tempo and beat grid of [mediaId] if smart mix has already analysed it; nothing is analysed for this. */
     suspend fun knownTempo(mediaId: String): MixAnalysis? {

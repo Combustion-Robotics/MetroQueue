@@ -15,12 +15,14 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameMillis
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -31,7 +33,10 @@ import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.compose.currentStateAsState
 import com.metrolist.music.LocalPlayerConnection
 import com.metrolist.music.constants.LyricsEffects
 import com.metrolist.music.constants.LyricsEffectsKey
@@ -73,6 +78,53 @@ private fun rememberPowerSaveMode(): Boolean {
         onDispose { context.unregisterReceiver(receiver) }
     }
     return powerSave
+}
+
+/** [rememberMusicLevel] while the level isn't known: effects scaled by it stay as they are. */
+internal const val MUSIC_LEVEL_NEUTRAL = 0.5f
+private const val MUSIC_LEVEL_INTERVAL_MS = 33L
+private const val MUSIC_LEVEL_PEAK_DECAY = 0.99f
+private const val MUSIC_LEVEL_MIN_PEAK = 0.01f
+
+/**
+ * Loudness of the music now relative to its recent peak, smoothed, 0..1. Sampled at about 30 Hz
+ * and metered only while [enabled], playing and on screen; [MUSIC_LEVEL_NEUTRAL] otherwise, or
+ * when nothing can be measured (e.g. with audio offload).
+ */
+@Composable
+internal fun rememberMusicLevel(enabled: Boolean): State<Float> {
+    val level = remember { mutableFloatStateOf(MUSIC_LEVEL_NEUTRAL) }
+    val playerConnection = LocalPlayerConnection.current ?: return level
+    val service = playerConnection.service
+    val isPlaying by playerConnection.isPlaying.collectAsStateWithLifecycle()
+    val lifecycleState by LocalLifecycleOwner.current.lifecycle.currentStateAsState()
+    val active = enabled && isPlaying && lifecycleState.isAtLeast(Lifecycle.State.STARTED)
+
+    DisposableEffect(service, active) {
+        service.setAudioLevelMetering(active)
+        onDispose { service.setAudioLevelMetering(false) }
+    }
+    LaunchedEffect(service, active) {
+        level.floatValue = MUSIC_LEVEL_NEUTRAL
+        if (!active) return@LaunchedEffect
+        var peak = 0f
+        var smoothed = MUSIC_LEVEL_NEUTRAL
+        var lastSampleMs = 0L
+        while (isActive) {
+            withFrameMillis { now ->
+                if (now - lastSampleMs >= MUSIC_LEVEL_INTERVAL_MS) {
+                    lastSampleMs = now
+                    val raw = service.audioLevel()
+                    peak = maxOf(raw, peak * MUSIC_LEVEL_PEAK_DECAY)
+                    val target = if (peak > MUSIC_LEVEL_MIN_PEAK) raw / peak else MUSIC_LEVEL_NEUTRAL
+                    // Quick to rise, slow to fall, like a VU meter
+                    smoothed += (target - smoothed) * if (target > smoothed) 0.45f else 0.12f
+                    level.floatValue = smoothed
+                }
+            }
+        }
+    }
+    return level
 }
 
 private const val FALLBACK_BREATH_MS = 2400.0

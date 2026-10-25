@@ -304,6 +304,8 @@ fun ExperimentalLyrics(
     val haloColor = MaterialTheme.colorScheme.primary
     val songBeat = rememberSongBeat(mediaMetadata?.id)
     val lyricsEffects = rememberLyricsEffects()
+    val musicLevel = rememberMusicLevel(enabled = lyricsEffects == LyricsEffects.FULL)
+    val musicLevelProvider = remember(musicLevel) { { musicLevel.value } }
     val playbackPositionProvider = remember(playerConnection) { { playerConnection.player.currentPosition } }
 
     var activeLineIndices by remember { mutableStateOf(emptySet<Int>()) }
@@ -779,6 +781,7 @@ fun ExperimentalLyrics(
                                         lyricsOffset = (currentSong?.song?.lyricsOffset ?: 0).toLong(),
                                         playerConnection = playerConnection, lyricsTextSize = 36f, lyricsLineSpacing = 1.3f,
                                         expressiveAccent = expressiveAccent, haloColor = haloColor, effects = lyricsEffects,
+                                        musicLevel = musicLevelProvider,
                                         lyricsTextPosition = lyricsTextPosition,
                                         respectAgentPositioning = respectAgentPositioning, isAutoScrollEnabled = isAutoScrollEnabled,
                                         displayedCurrentLineIndex = deferredCurrentLineIndex, romanizeAsMain = romanizeAsMain,
