@@ -139,6 +139,7 @@ import com.metrolist.music.LocalDownloadUtil
 import com.metrolist.music.LocalListenTogetherManager
 import com.metrolist.music.LocalPlayerConnection
 import com.metrolist.music.R
+import com.metrolist.music.constants.ExperimentalLyricsKey
 import com.metrolist.music.constants.CropAlbumArtKey
 import com.metrolist.music.constants.DarkModeKey
 import com.metrolist.music.constants.HidePlayerThumbnailKey
@@ -169,6 +170,7 @@ import com.metrolist.music.ui.component.BottomSheetState
 import com.metrolist.music.ui.component.LocalBottomSheetPageState
 import com.metrolist.music.ui.component.LocalMenuState
 import com.metrolist.music.ui.component.Lyrics
+import com.metrolist.music.ui.component.LyricsAmbientBackground
 import com.metrolist.music.ui.component.PlayerSliderTrack
 import com.metrolist.music.ui.component.ResizableIconButton
 import com.metrolist.music.ui.component.SquigglySlider
@@ -829,6 +831,9 @@ fun BottomSheetPlayer(
         }
 
     val backgroundAlpha = state.progress.coerceIn(0f, 1f)
+    val experimentalLyrics by rememberPreference(ExperimentalLyricsKey, defaultValue = true)
+    val lyricsAmbientThemeColors =
+        listOf(MaterialTheme.colorScheme.primary, MaterialTheme.colorScheme.tertiary, MaterialTheme.colorScheme.secondary)
 
     BottomSheet(
         state = state,
@@ -914,6 +919,24 @@ fun BottomSheetPlayer(
                     else -> {
                         PlayerBackgroundStyle.DEFAULT
                     }
+                }
+
+                // Drifts over whichever background is set, only while the experimental lyrics are shown
+                AnimatedVisibility(
+                    visible = showInlineLyrics && experimentalLyrics,
+                    enter = fadeIn(tween(800)),
+                    exit = fadeOut(tween(600)),
+                ) {
+                    LyricsAmbientBackground(
+                        colors = gradientColors.ifEmpty { lyricsAmbientThemeColors },
+                        alpha =
+                            when (playerBackground) {
+                                PlayerBackgroundStyle.DEFAULT -> if (useDarkTheme) 0.22f else 0.16f
+                                PlayerBackgroundStyle.GRADIENT -> 0.3f
+                                PlayerBackgroundStyle.BLUR -> 0.2f
+                            },
+                        modifier = Modifier.fillMaxSize().alpha(backgroundAlpha),
+                    )
                 }
             }
         },
