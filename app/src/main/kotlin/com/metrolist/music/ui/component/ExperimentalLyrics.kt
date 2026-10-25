@@ -69,7 +69,6 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.util.VelocityTracker
-import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
@@ -540,10 +539,11 @@ fun ExperimentalLyrics(
         // Use a more permissive fallback for constraints to prevent "locks" if items are not measured yet
         val constraintLineHeightPx = with(density) { 120.dp.toPx() }
 
-        val positions = remember(itemHeights.toMap(), activeListIndex, mergedLyricsList) {
+        // Derived from itemHeights itself, so they're only rebuilt when a height actually changes
+        val positions by remember(itemHeights, activeListIndex, mergedLyricsList, density) { derivedStateOf {
             val map = mutableMapOf<Int, Float>()
-            if (activeListIndex == -1 || mergedLyricsList.isEmpty()) return@remember map
-            
+            if (activeListIndex == -1 || mergedLyricsList.isEmpty()) return@derivedStateOf map
+
             map[activeListIndex] = 0f
             var currentY = 0f
             for (i in activeListIndex - 1 downTo 0) {
@@ -563,10 +563,10 @@ fun ExperimentalLyrics(
                 map[i + 1] = currentY
             }
             map
-        }
+        } }
 
-        val minOffset = remember(itemHeights.toMap(), mergedLyricsList, activeListIndex, anchorY) {
-            if (mergedLyricsList.isEmpty() || activeListIndex == -1) return@remember 0f
+        val minOffset by remember(itemHeights, mergedLyricsList, activeListIndex, anchorY, density) { derivedStateOf {
+            if (mergedLyricsList.isEmpty() || activeListIndex == -1) return@derivedStateOf 0f
             val totalBelow = (activeListIndex until mergedLyricsList.size - 1).sumOf { i ->
                 val currentItem = mergedLyricsList[i]
                 val nextItem = mergedLyricsList[i + 1]
@@ -577,10 +577,10 @@ fun ExperimentalLyrics(
             val lastItem = mergedLyricsList.last()
             val lastHeight = itemHeights[mergedLyricsList.size - 1]?.toFloat() ?: (if (lastItem is LyricsListItem.Indicator) indicatorHeightPx else constraintLineHeightPx)
             with(density) { 100.dp.toPx() } - anchorY - totalBelow - lastHeight
-        }
+        } }
 
-        val maxOffset = remember(itemHeights.toMap(), mergedLyricsList, activeListIndex, maxHeightPx, anchorY) {
-            if (mergedLyricsList.isEmpty() || activeListIndex == -1) return@remember 0f
+        val maxOffset by remember(itemHeights, mergedLyricsList, activeListIndex, maxHeightPx, anchorY, density) { derivedStateOf {
+            if (mergedLyricsList.isEmpty() || activeListIndex == -1) return@derivedStateOf 0f
             val totalAbove = (0 until activeListIndex).sumOf { i ->
                 val item = mergedLyricsList[i]
                 val height = itemHeights[i]?.toFloat() ?: (if (item is LyricsListItem.Indicator) indicatorHeightPx else constraintLineHeightPx)
@@ -588,7 +588,7 @@ fun ExperimentalLyrics(
                 (height + if (noGap) 0f else with(density) { LYRICS_ITEM_GAP_DP.toPx() }).toDouble()
             }.toFloat()
             maxHeightPx - with(density) { 150.dp.toPx() } - anchorY + totalAbove
-        }
+        } }
 
         // Clamp to real content bounds only. minOffset/maxOffset already use conservative height
         // fallbacks (constraintLineHeightPx) for items not yet measured; a large buffer here caused
@@ -791,7 +791,8 @@ fun ExperimentalLyrics(
                                     }
                                     IntervalIndicator(gapStartMs, gapEndMs, effectivePositionProvider, visible, expressiveAccent,
                                         songBeat, lyricsEffects != LyricsEffects.OFF, isPlaying, playbackPositionProvider,
-                                        Modifier.fillMaxWidth().onSizeChanged { itemHeights[listIndex] = it.height }.padding(horizontal = 24.dp).wrapContentWidth(Alignment.CenterHorizontally))
+                                        onHeightChanged = { itemHeights[listIndex] = it },
+                                        modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp).wrapContentWidth(Alignment.CenterHorizontally))
                                 }
                                 is LyricsListItem.Line -> {
                                     val index = listItem.index
