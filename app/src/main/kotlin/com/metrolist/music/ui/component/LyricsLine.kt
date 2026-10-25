@@ -766,9 +766,10 @@ private fun WordLevelLyrics(
         
         // Each layout corresponds to one grapheme cluster (the visual unit),
         // not one codepoint. Fixes Devanagari/Bengali matra fragmentation.
-        val letterLayouts = remember(mainText, lyricStyle) {
-            graphemeClusters.map { cluster -> textMeasurer.measure(cluster, lyricStyle) }
-        }
+        // Measured when first drawn, so only lines that turn active pay for them.
+        val letterLayouts = remember(mainText, lyricStyle) { arrayOfNulls<TextLayoutResult>(clusterCount) }
+        fun letterLayoutAt(i: Int): TextLayoutResult =
+            letterLayouts[i] ?: textMeasurer.measure(graphemeClusters[i], lyricStyle).also { letterLayouts[i] = it }
         
         val textBounds = remember(layoutResult) {
             var left = Float.MAX_VALUE
@@ -830,8 +831,8 @@ private fun WordLevelLyrics(
                             drawIntoCanvas { canvas ->
                                 glyphGlow.draw(
                                     canvas.nativeCanvas,
-                                    letterLayouts[i].layoutInput.text.text,
-                                    letterLayouts[i].firstBaseline,
+                                    graphemeClusters[i],
+                                    letterLayoutAt(i).firstBaseline,
                                     expressiveAccent.copy(alpha = alpha).toArgb(),
                                     glowRadii[i],
                                 )
@@ -944,6 +945,7 @@ private fun WordLevelLyrics(
                 // Main drawing loop: iterate over cluster indices so each visual
                 // glyph (including multi-codepoint Devanagari clusters) is one unit.
                 for (i in 0 until clusterCount) {
+                    val letterLayout = letterLayoutAt(i)
                     val lineIdx = clusterBounds.line[i]
                     val charLeft = clusterBounds.left[i]
                     val charTop = clusterBounds.top[i]
@@ -1019,8 +1021,8 @@ private fun WordLevelLyrics(
                                 drawIntoCanvas { canvas ->
                                     glyphGlow.draw(
                                         canvas.nativeCanvas,
-                                        letterLayouts[i].layoutInput.text.text,
-                                        letterLayouts[i].firstBaseline,
+                                        graphemeClusters[i],
+                                        letterLayout.firstBaseline,
                                         expressiveAccent.copy(alpha = glowAlpha).toArgb(),
                                         glowRadius,
                                     )
@@ -1028,7 +1030,7 @@ private fun WordLevelLyrics(
                             }
                         }
                         val baseAlpha = if (isWordSung || charLp > 0.99f) 1f else (unsungAlpha + (1f - unsungAlpha) * sungFactor)
-                        drawText(letterLayouts[i], color = expressiveAccent.copy(alpha = if (wordIdx == -1) unsungAlpha else baseAlpha))
+                        drawText(letterLayout, color = expressiveAccent.copy(alpha = if (wordIdx == -1) unsungAlpha else baseAlpha))
                         if (!isWordSung && charLp > 0f && charLp < 1f) {
                             val fXL = charWidth * charLp
                             val eW = (charWidth * 0.45f).coerceAtLeast(1f)
@@ -1036,7 +1038,7 @@ private fun WordLevelLyrics(
                             // Solid up to sWL, then fading out over eW, cut off at the fill position
                             fillEdgeBrush.setEdge(sWL, eW)
                             clipRect(left = 0f, top = 0f, right = fXL, bottom = charHeight) {
-                                drawText(letterLayouts[i], brush = fillEdgeBrush, alpha = 1f)
+                                drawText(letterLayout, brush = fillEdgeBrush, alpha = 1f)
                             }
                         }
                     }
