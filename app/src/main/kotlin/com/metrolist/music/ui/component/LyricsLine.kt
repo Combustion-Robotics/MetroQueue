@@ -50,6 +50,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
@@ -341,12 +342,14 @@ internal fun LyricsLine(
     }
 
     // Lines around the current one are blurred and dimmed by their distance to it, for depth.
-    // Off while the user scrolls or selects, where every line should be readable.
+    // Off while the user scrolls or selects, where every line should be readable. Lines further
+    // than DEPTH_MAX_LINES sit one step beyond it, where the blur has faded back out: they are
+    // nearly transparent or off screen, and skip the blur's offscreen layer.
     val depthTarget = if (
         effects == LyricsEffects.FULL && isSynced && isAutoScrollEnabled && !isSelectionModeActive && !isActiveLine &&
         !(item.isBackground && bgVisible) && currentLineDistance >= 0
     ) {
-        currentLineDistance.coerceAtMost(DEPTH_MAX_LINES).toFloat()
+        currentLineDistance.coerceAtMost(LINE_DISTANCE_MAX).toFloat()
     } else 0f
     val depth by animateFloatAsState(depthTarget, tween(600, easing = FastOutSlowInEasing), label = "lyricsLineDepth")
     val depthBlurs = remember(density) { arrayOfNulls<RenderEffect>(DEPTH_MAX_LINES * DEPTH_BLUR_STEPS_PER_LINE + 1) }
@@ -368,10 +371,13 @@ internal fun LyricsLine(
             scaleX = lineScale
             scaleY = lineScale
             transformOrigin = scaleOrigin
-            alpha = 1f - DEPTH_DIM_PER_LINE * depth
+            alpha = 1f - DEPTH_DIM_PER_LINE * depth.coerceAtMost(DEPTH_MAX_LINES.toFloat())
+            // Dimming alone then needs no offscreen layer
+            compositingStrategy = CompositingStrategy.ModulateAlpha
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                val blurDepth = if (depth <= DEPTH_MAX_LINES) depth else DEPTH_MAX_LINES * (DEPTH_MAX_LINES + 1 - depth)
                 // Bucketed so animating the radius reuses a few effects instead of one per frame
-                val step = (depth * DEPTH_BLUR_STEPS_PER_LINE).roundToInt()
+                val step = (blurDepth * DEPTH_BLUR_STEPS_PER_LINE).roundToInt()
                 renderEffect = if (step == 0) null else depthBlurs[step] ?: run {
                     val radius = DEPTH_BLUR_PER_LINE.toPx() * step / DEPTH_BLUR_STEPS_PER_LINE
                     BlurEffect(radius, radius, TileMode.Decal).also { depthBlurs[step] = it }
