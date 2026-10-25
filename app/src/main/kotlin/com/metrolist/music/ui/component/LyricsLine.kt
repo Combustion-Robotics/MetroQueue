@@ -6,6 +6,9 @@
 package com.metrolist.music.ui.component
 
 import android.graphics.BlurMaskFilter
+import android.graphics.Paint
+import android.graphics.Typeface
+import android.os.Build
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -50,6 +53,7 @@ import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFontFamilyResolver
 import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
@@ -69,6 +73,7 @@ import kotlinx.coroutines.isActive
 import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.exp
+import kotlin.math.roundToInt
 import kotlin.math.sin
 import kotlin.math.PI
 
@@ -79,6 +84,38 @@ private data class HyphenGroupWord(
     val groupStartMs: Long,
     val groupEndMs: Long
 )
+
+private val GLOW_MAX_RADIUS = 12.dp
+
+/**
+ * Blurred copy of a glyph drawn under it. Radii are bucketed so each mask filter is created
+ * once and reused, rather than allocated per glyph and frame.
+ */
+private class GlyphGlow(
+    typeface: Typeface?,
+    textSizePx: Float,
+    letterSpacingEm: Float,
+    private val maxRadiusPx: Float,
+) {
+    private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        this.typeface = typeface
+        textSize = textSizePx
+        letterSpacing = letterSpacingEm
+    }
+    private val maskFilters = arrayOfNulls<BlurMaskFilter>(RADIUS_STEPS)
+
+    fun draw(canvas: android.graphics.Canvas, text: String, baseline: Float, color: Int, radiusPx: Float) {
+        val step = (radiusPx / maxRadiusPx * RADIUS_STEPS).roundToInt().coerceIn(1, RADIUS_STEPS) - 1
+        paint.maskFilter = maskFilters[step]
+            ?: BlurMaskFilter(maxRadiusPx * (step + 1) / RADIUS_STEPS, BlurMaskFilter.Blur.NORMAL).also { maskFilters[step] = it }
+        paint.color = color
+        canvas.drawText(text, 0f, baseline, paint)
+    }
+
+    private companion object {
+        const val RADIUS_STEPS = 8
+    }
+}
 
 private fun String.containsRtl(): Boolean {
     for (c in this) {
@@ -338,10 +375,25 @@ private fun WordLevelLyrics(
 ) {
     val density = LocalDensity.current
     val textMeasurer = rememberTextMeasurer()
-    val glowPaint = remember {
-        android.graphics.Paint().apply {
-            isAntiAlias = true
-        }
+    // The glow is drawn with the platform paint, so it needs the typeface the lyrics actually use
+    // (custom fonts included) to line up with the glyphs. Mask filters need hardware support (P+).
+    val fontFamilyResolver = LocalFontFamilyResolver.current
+    val resolvedTypeface by remember(fontFamilyResolver, lyricStyle.fontFamily, lyricStyle.fontWeight, lyricStyle.fontStyle) {
+        fontFamilyResolver.resolve(
+            fontFamily = lyricStyle.fontFamily,
+            fontWeight = lyricStyle.fontWeight ?: FontWeight.Normal,
+            fontStyle = lyricStyle.fontStyle ?: FontStyle.Normal,
+        )
+    }
+    val glyphGlow = remember(resolvedTypeface, lyricStyle.fontSize, lyricStyle.letterSpacing, density) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) return@remember null
+        val fontSize = lyricStyle.fontSize
+        GlyphGlow(
+            typeface = resolvedTypeface as? Typeface,
+            textSizePx = with(density) { fontSize.toPx() },
+            letterSpacingEm = if (lyricStyle.letterSpacing.isSp && fontSize.isSp) lyricStyle.letterSpacing.value / fontSize.value else 0f,
+            maxRadiusPx = with(density) { GLOW_MAX_RADIUS.toPx() },
+        )
     }
     
     var smoothPosition by remember { mutableLongStateOf(currentPositionState + lyricsOffset) }
@@ -761,15 +813,17 @@ private fun WordLevelLyrics(
                             val impactRatio = dur.toFloat() / wordLenText
                             val fadeFactor = (sungFactor * 5f).coerceIn(0f, 1f) * ((1f - sungFactor) * 8f).coerceIn(0f, 1f)
                             val impactFactor = (((impactRatio - 100f) / 250f).coerceIn(0f, 1f) * 0.6f + ((dur.toFloat() - 300f) / 1500f).coerceIn(0f, 1f) * 0.4f).coerceIn(0f, 1f) * fadeFactor
-                            if (impactFactor > 0.01f) {
+                            if (glyphGlow != null && impactFactor > 0.01f) {
                                 val glowAlpha = (0.35f * impactFactor).coerceIn(0f, 0.4f)
-                                val baseGlowRadius = 12.dp.toPx() * impactFactor                                                                                    
+                                val baseGlowRadius = GLOW_MAX_RADIUS.toPx() * impactFactor
                                 drawIntoCanvas { canvas ->
-                                    glowPaint.maskFilter = BlurMaskFilter(baseGlowRadius, BlurMaskFilter.Blur.NORMAL)
-                                    glowPaint.color = expressiveAccent.copy(alpha = glowAlpha).toArgb()
-                                    glowPaint.textSize = lyricStyle.fontSize.toPx()
-                                    glowPaint.typeface = android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD)
-                                    canvas.nativeCanvas.drawText(letterLayouts[i].layoutInput.text.text, 0f, letterLayouts[i].firstBaseline, glowPaint)
+                                    glyphGlow.draw(
+                                        canvas.nativeCanvas,
+                                        letterLayouts[i].layoutInput.text.text,
+                                        letterLayouts[i].firstBaseline,
+                                        expressiveAccent.copy(alpha = glowAlpha).toArgb(),
+                                        baseGlowRadius,
+                                    )
                                 }
                             }
                         }
