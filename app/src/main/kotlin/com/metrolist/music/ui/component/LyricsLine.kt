@@ -11,7 +11,9 @@ import android.graphics.Typeface
 import android.os.Build
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -99,6 +101,8 @@ private const val DEPTH_MAX_LINES = 4
 private const val DEPTH_BLUR_STEPS_PER_LINE = 4
 private val DEPTH_BLUR_PER_LINE = 1.2.dp
 private const val DEPTH_DIM_PER_LINE = 0.07f
+
+private const val ACTIVE_LINE_SCALE = 1.04f
 
 private const val HALO_ALPHA = 0.16f
 private val HALO_PADDING_X = 12.dp
@@ -263,8 +267,23 @@ internal fun LyricsLine(
     val depth by animateFloatAsState(depthTarget, tween(600, easing = FastOutSlowInEasing), label = "lyricsLineDepth")
     val depthBlurs = remember(density) { arrayOfNulls<RenderEffect>(DEPTH_MAX_LINES * DEPTH_BLUR_STEPS_PER_LINE + 1) }
 
+    // Drawn larger only, so the measured line heights and positions stay as they are
+    val lineScale by animateFloatAsState(
+        targetValue = if (isSynced && isActiveLine && !item.isBackground) ACTIVE_LINE_SCALE else 1f,
+        animationSpec = spring(dampingRatio = 0.8f, stiffness = Spring.StiffnessLow),
+        label = "lyricsLineScale",
+    )
+    val scaleOrigin = when (agentTextAlign) {
+        TextAlign.Left -> TransformOrigin(0f, 0.5f)
+        TextAlign.Right -> TransformOrigin(1f, 0.5f)
+        else -> TransformOrigin.Center
+    }
+
     val itemModifier = modifier
         .graphicsLayer {
+            scaleX = lineScale
+            scaleY = lineScale
+            transformOrigin = scaleOrigin
             alpha = 1f - DEPTH_DIM_PER_LINE * depth
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 // Bucketed so animating the radius reuses a few effects instead of one per frame
