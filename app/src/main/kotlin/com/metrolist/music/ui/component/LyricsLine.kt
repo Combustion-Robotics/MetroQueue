@@ -10,6 +10,7 @@ import android.graphics.Paint
 import android.graphics.Typeface
 import android.os.Build
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -48,7 +49,10 @@ import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.drawscope.withTransform
+import androidx.compose.ui.graphics.BlurEffect
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.RenderEffect
+import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
@@ -90,6 +94,11 @@ private val GLOW_MAX_RADIUS = 12.dp
 private const val GLOW_MAX_ALPHA = 0.4f
 private const val GLOW_BASE_STRENGTH = 0.35f
 private const val GLOW_RELEASE_MS = 420.0
+
+private const val DEPTH_MAX_LINES = 4
+private const val DEPTH_BLUR_STEPS_PER_LINE = 4
+private val DEPTH_BLUR_PER_LINE = 1.2.dp
+private const val DEPTH_DIM_PER_LINE = 0.07f
 
 private const val HALO_ALPHA = 0.16f
 private val HALO_PADDING_X = 12.dp
@@ -219,22 +228,6 @@ internal fun LyricsLine(
 ) {
     val density = LocalDensity.current
     
-    val itemModifier = modifier
-        .fillMaxWidth()
-        .onSizeChanged { onSizeChanged(it.height) }
-        .clip(RoundedCornerShape(8.dp))
-        .combinedClickable(
-            onClick = onClick,
-            onLongClick = onLongClick
-        )
-        .background(if (isSelected && isSelectionModeActive) MaterialTheme.colorScheme.primary.copy(alpha = 0.3f) else Color.Transparent)
-        .padding(
-            start = when (lyricsTextPosition) { LyricsPosition.LEFT, LyricsPosition.RIGHT -> 11.dp; LyricsPosition.CENTER -> 24.dp },
-            end = when (lyricsTextPosition) { LyricsPosition.LEFT, LyricsPosition.RIGHT -> 11.dp; LyricsPosition.CENTER -> 24.dp },
-            top = if (item.isBackground) 0.dp else 12.dp,
-            bottom = if (item.isBackground) 2.dp else 12.dp // simplified gap logic
-        )
-
     val agentAlignment = when {
         respectAgentPositioning && item.agent == "v1" -> Alignment.Start
         respectAgentPositioning && item.agent == "v2" -> Alignment.End
@@ -258,6 +251,44 @@ internal fun LyricsLine(
             LyricsPosition.RIGHT -> TextAlign.Right
         }
     }
+
+    // Lines around the current one are blurred and dimmed by their distance to it, for depth.
+    // Off while the user scrolls or selects, where every line should be readable.
+    val depthTarget = if (
+        isSynced && isAutoScrollEnabled && !isSelectionModeActive && !isActiveLine &&
+        !(item.isBackground && bgVisible) && displayedCurrentLineIndex >= 0
+    ) {
+        abs(index - displayedCurrentLineIndex).coerceAtMost(DEPTH_MAX_LINES).toFloat()
+    } else 0f
+    val depth by animateFloatAsState(depthTarget, tween(600, easing = FastOutSlowInEasing), label = "lyricsLineDepth")
+    val depthBlurs = remember(density) { arrayOfNulls<RenderEffect>(DEPTH_MAX_LINES * DEPTH_BLUR_STEPS_PER_LINE + 1) }
+
+    val itemModifier = modifier
+        .graphicsLayer {
+            alpha = 1f - DEPTH_DIM_PER_LINE * depth
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                // Bucketed so animating the radius reuses a few effects instead of one per frame
+                val step = (depth * DEPTH_BLUR_STEPS_PER_LINE).roundToInt()
+                renderEffect = if (step == 0) null else depthBlurs[step] ?: run {
+                    val radius = DEPTH_BLUR_PER_LINE.toPx() * step / DEPTH_BLUR_STEPS_PER_LINE
+                    BlurEffect(radius, radius, TileMode.Decal).also { depthBlurs[step] = it }
+                }
+            }
+        }
+        .fillMaxWidth()
+        .onSizeChanged { onSizeChanged(it.height) }
+        .clip(RoundedCornerShape(8.dp))
+        .combinedClickable(
+            onClick = onClick,
+            onLongClick = onLongClick
+        )
+        .background(if (isSelected && isSelectionModeActive) MaterialTheme.colorScheme.primary.copy(alpha = 0.3f) else Color.Transparent)
+        .padding(
+            start = when (lyricsTextPosition) { LyricsPosition.LEFT, LyricsPosition.RIGHT -> 11.dp; LyricsPosition.CENTER -> 24.dp },
+            end = when (lyricsTextPosition) { LyricsPosition.LEFT, LyricsPosition.RIGHT -> 11.dp; LyricsPosition.CENTER -> 24.dp },
+            top = if (item.isBackground) 0.dp else 12.dp,
+            bottom = if (item.isBackground) 2.dp else 12.dp // simplified gap logic
+        )
 
     Box(modifier = itemModifier, contentAlignment = when {
         respectAgentPositioning && item.agent == "v1" -> Alignment.CenterStart
