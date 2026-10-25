@@ -40,6 +40,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.drawscope.clipRect
@@ -47,7 +48,7 @@ import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.drawscope.withTransform
-import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
@@ -89,6 +90,10 @@ private val GLOW_MAX_RADIUS = 12.dp
 private const val GLOW_MAX_ALPHA = 0.4f
 private const val GLOW_BASE_STRENGTH = 0.35f
 private const val GLOW_RELEASE_MS = 420.0
+
+private const val HALO_ALPHA = 0.16f
+private val HALO_PADDING_X = 12.dp
+private val HALO_PADDING_Y = 10.dp
 
 /**
  * Glow of one glyph: builds up while the fill sweeps across it, peaks as the fill edge leaves it
@@ -199,6 +204,7 @@ internal fun LyricsLine(
     lyricsTextSize: Float,
     lyricsLineSpacing: Float,
     expressiveAccent: Color,
+    haloColor: Color,
     lyricsTextPosition: LyricsPosition,
     respectAgentPositioning: Boolean,
     isAutoScrollEnabled: Boolean,
@@ -334,6 +340,7 @@ internal fun LyricsLine(
                         lyricStyle = lyricStyle,
                         lineColor = lineColor,
                         expressiveAccent = expressiveAccent,
+                        haloColor = haloColor,
                         isBackground = item.isBackground,
                         focusedAlpha = focusedAlpha,
                         alignment = agentTextAlign
@@ -398,6 +405,7 @@ private fun WordLevelLyrics(
     lyricStyle: TextStyle,
     lineColor: Color,
     expressiveAccent: Color,
+    haloColor: Color,
     isBackground: Boolean,
     focusedAlpha: Float,
     alignment: TextAlign
@@ -426,6 +434,22 @@ private fun WordLevelLyrics(
     }
     
     var smoothPosition by remember { mutableLongStateOf(currentPositionState + lyricsOffset) }
+
+    val haloLevel by animateFloatAsState(
+        targetValue = if (isActiveLine) 1f else 0f,
+        animationSpec = tween(if (isActiveLine) 500 else 350),
+        label = "lyricsLineHalo",
+    )
+    // Unit-radius gradient scaled to the text when drawn, so the shader is built once per color
+    val haloBrush = remember(haloColor) {
+        Brush.radialGradient(
+            0f to haloColor,
+            0.5f to haloColor.copy(alpha = haloColor.alpha * 0.5f),
+            1f to haloColor.copy(alpha = 0f),
+            center = Offset.Zero,
+            radius = 1f,
+        )
+    }
     
     LaunchedEffect(isActiveLine) {
         if (isActiveLine) {
@@ -593,18 +617,40 @@ private fun WordLevelLyrics(
             graphemeClusters.map { cluster -> textMeasurer.measure(cluster, lyricStyle) }
         }
         
+        val textBounds = remember(layoutResult) {
+            var left = Float.MAX_VALUE
+            var right = 0f
+            for (line in 0 until layoutResult.lineCount) {
+                left = minOf(left, layoutResult.getLineLeft(line))
+                right = maxOf(right, layoutResult.getLineRight(line))
+            }
+            if (layoutResult.lineCount == 0) Rect.Zero else Rect(left, 0f, right, layoutResult.size.height.toFloat())
+        }
+
         // RTL and joined Indic text is drawn as one shaped line with per-word clips instead of per cluster.
         val drawWholeLine = remember(mainText) { mainText.containsRtl() || mainText.containsJoinedIndic() }
         
         Canvas(modifier = Modifier
             .fillMaxWidth()
             .height(with(density) { layoutResult.size.height.toDp() })
-            .graphicsLayer(
-                clip = false,
-                compositingStrategy = CompositingStrategy.Offscreen,
-            )
+            // No offscreen buffer: it would cut the glow and halo off at the text bounds
+            .graphicsLayer(clip = false)
         ) {
             if (mainText.isEmpty()) return@Canvas
+            val halo = haloLevel
+            if (halo > 0.01f && textBounds.width > 0f) {
+                val center = textBounds.center
+                withTransform({
+                    translate(center.x, center.y)
+                    scale(
+                        scaleX = textBounds.width / 2f + HALO_PADDING_X.toPx(),
+                        scaleY = textBounds.height / 2f + HALO_PADDING_Y.toPx(),
+                        pivot = Offset.Zero,
+                    )
+                }) {
+                    drawCircle(haloBrush, radius = 1f, center = Offset.Zero, alpha = HALO_ALPHA * halo)
+                }
+            }
             if (!isActiveLine) {
                 drawText(layoutResult, color = lineColor)
             } else {
