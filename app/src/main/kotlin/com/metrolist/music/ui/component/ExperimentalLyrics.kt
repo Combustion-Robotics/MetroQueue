@@ -127,8 +127,10 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
@@ -140,6 +142,7 @@ private val LYRICS_FADE_BOTTOM_DP = 160.dp
 private const val LYRICS_STAGGER_DELAY_PER_DISTANCE = 20
 private const val LYRICS_STAGGER_DELAY_MAX_MS = 200
 private const val LYRICS_PREVIEW_TIME = 8000L
+private const val PAUSED_POLL_MS = 100L
 
 @OptIn(
     ExperimentalMaterial3Api::class,
@@ -183,6 +186,7 @@ fun ExperimentalLyrics(
     val scope = rememberCoroutineScope()
 
     val mediaMetadata by playerConnection.mediaMetadata.collectAsStateWithLifecycle()
+    val isPlaying by playerConnection.isPlaying.collectAsStateWithLifecycle()
     val translationStatus by LyricsTranslationHelper.status.collectAsStateWithLifecycle()
     val currentLyricsEntity by playerConnection.currentLyrics.collectAsStateWithLifecycle(initialValue = null)
     var lastValidLyricsEntity by remember { mutableStateOf<com.metrolist.music.db.entities.LyricsEntity?>(null) }
@@ -343,6 +347,8 @@ fun ExperimentalLyrics(
     }
 
     var lastMainMaxSeen by remember(lyrics, lines) { mutableIntStateOf(-1) }
+    // Seeks made by tapping a line, so the paused position loop picks them up at once
+    var localSeeks by remember { mutableIntStateOf(0) }
 
     LaunchedEffect(lyrics, lines) {
         if (lyrics.isNullOrEmpty() || lines.isEmpty()) {
@@ -376,8 +382,20 @@ fun ExperimentalLyrics(
         var newActiveIndices = emptySet<Int>()
         var scrollActiveIndices = emptySet<Int>()
         var scrollMax = -1
+        var paused = false
 
         while (isActive) {
+            if (paused) {
+                // Nothing moves on its own while paused: wait for playback, a seek bar drag or a
+                // tap on a line, and check now and then for seeks made elsewhere
+                val seeks = localSeeks
+                withTimeoutOrNull(PAUSED_POLL_MS) {
+                    merge(
+                        playerConnection.isPlaying,
+                        snapshotFlow { sliderPositionProvider() != null || localSeeks != seeks },
+                    ).first { it }
+                }
+            }
             withFrameNanos { _ -> }
             val now = System.currentTimeMillis()
             val sliderPosition = sliderPositionProvider()
@@ -458,6 +476,7 @@ fun ExperimentalLyrics(
             
             previousScrollActiveIndices = scrollActiveIndices
             activeLineIndices = newActiveIndices
+            paused = !isSeeking && !playerConnection.player.isPlaying
         }
     }
 
@@ -771,7 +790,7 @@ fun ExperimentalLyrics(
                                         }
                                     }
                                     IntervalIndicator(gapStartMs, gapEndMs, effectivePositionProvider, visible, expressiveAccent,
-                                        songBeat, lyricsEffects != LyricsEffects.OFF, playbackPositionProvider,
+                                        songBeat, lyricsEffects != LyricsEffects.OFF, isPlaying, playbackPositionProvider,
                                         Modifier.fillMaxWidth().onSizeChanged { itemHeights[listIndex] = it.height }.padding(horizontal = 24.dp).wrapContentWidth(Alignment.CenterHorizontally))
                                 }
                                 is LyricsListItem.Line -> {
@@ -814,6 +833,7 @@ fun ExperimentalLyrics(
                                             } else if (changeLyrics && !isGuest) {
                                                 if (item.time < playerConnection.player.duration + 30000L) {
                                                     playerConnection.seekTo((item.time - (currentSong?.song?.lyricsOffset ?: 0)).coerceAtLeast(0))
+                                                    localSeeks++
                                                 } else {
                                                     scrollTargetIndex = index
                                                     deferredCurrentLineIndex = index

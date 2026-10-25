@@ -27,9 +27,11 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import com.metrolist.music.lyrics.LyricsEntry
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 
 private const val BREATH_SCALE = 0.07f
+private const val PAUSED_BREATH_POLL_MS = 100L
 
 sealed class LyricsListItem {
     data class Line(val index: Int, val entry: LyricsEntry) : LyricsListItem()
@@ -52,17 +54,23 @@ internal fun IntervalIndicator(
     color: Color,
     beat: SongBeat?,
     breathing: Boolean,
+    isPlaying: Boolean,
     playbackPositionProvider: () -> Long,
     modifier: Modifier = Modifier
 ) {
     val alpha = remember { Animatable(0f) }
 
-    // Follows the playback position, so it holds still while paused
+    // Follows the playback position, so it holds still while paused; then only seeks move it
     var breath by remember { mutableFloatStateOf(0f) }
-    LaunchedEffect(visible, beat, breathing) {
+    LaunchedEffect(visible, beat, breathing, isPlaying) {
         if (!breathing) breath = 0f
         while (visible && breathing && isActive) {
-            withFrameMillis { breath = beat.breath(playbackPositionProvider()) }
+            if (isPlaying) {
+                withFrameMillis { breath = beat.breath(playbackPositionProvider()) }
+            } else {
+                breath = beat.breath(playbackPositionProvider())
+                delay(PAUSED_BREATH_POLL_MS)
+            }
         }
     }
     val rowHeightPx = remember { Animatable(0f) }
