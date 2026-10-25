@@ -764,20 +764,28 @@ fun ExperimentalLyrics(
                         LaunchedEffect(isAutoScrollEnabled, targetOffset, isInitialLayout) {
                             if (isAutoScrollEnabled || isInitialLayout) frozenOffset.floatValue = targetOffset
                         }
-                        val animatedOffset by animateFloatAsState(
-                            targetValue = if (isAutoScrollEnabled) targetOffset else frozenOffset.floatValue,
-                            animationSpec = if (isInitialLayout || !isAutoScrollEnabled) snap() 
-                                            else {
-                                                tween(750, (distance * LYRICS_STAGGER_DELAY_PER_DISTANCE).coerceAtMost(LYRICS_STAGGER_DELAY_MAX_MS), FastOutSlowInEasing)
-                                            },
-                            label = "lyricStaggeredOffset_$listIndex"
-                        )
+                        val offsetTarget = if (isAutoScrollEnabled) targetOffset else frozenOffset.floatValue
+                        val animatedOffset = remember { Animatable(offsetTarget) }
+                        LaunchedEffect(offsetTarget) {
+                            val from = animatedOffset.value
+                            // A line that stays a screen or more out of view on one side has nothing to show
+                            val staysOffScreen = userManualOffset == 0f &&
+                                ((from < -maxHeightPx && offsetTarget < -maxHeightPx) || (from > 2 * maxHeightPx && offsetTarget > 2 * maxHeightPx))
+                            if (isInitialLayout || !isAutoScrollEnabled || staysOffScreen) {
+                                animatedOffset.snapTo(offsetTarget)
+                            } else {
+                                animatedOffset.animateTo(
+                                    offsetTarget,
+                                    tween(750, (distance * LYRICS_STAGGER_DELAY_PER_DISTANCE).coerceAtMost(LYRICS_STAGGER_DELAY_MAX_MS), FastOutSlowInEasing),
+                                )
+                            }
+                        }
 
                         Box(
                             modifier = Modifier.fillMaxWidth().layout { m, c -> 
                                 val p = m.measure(c.copy(maxHeight = Constraints.Infinity))
                                 layout(p.width, 0) { p.place(0, 0) }
-                            }.offset { IntOffset(0, (animatedOffset + userManualOffset).roundToInt()) }
+                            }.offset { IntOffset(0, (animatedOffset.value + userManualOffset).roundToInt()) }
                         ) {
                             when (listItem) {
                                 is LyricsListItem.Indicator -> {
@@ -811,7 +819,7 @@ fun ExperimentalLyrics(
                                     val bgVisible = item.isBackground && (activeLineIndices.contains(pairedMainLineIndex) || activeLineIndices.contains(index) || isInGapWithMain)
                                     
                                     LyricsLine(
-                                        index = index, item = item, isSynced = isSynced,
+                                        item = item, isSynced = isSynced,
                                         isActiveLine = isActiveLine,
                                         bgVisible = bgVisible, isSelected = selectedIndices.contains(index),
                                         isSelectionModeActive = isSelectionModeActive, currentPosition = currentPositionProvider,
@@ -821,7 +829,9 @@ fun ExperimentalLyrics(
                                         musicLevel = musicLevelProvider,
                                         lyricsTextPosition = lyricsTextPosition,
                                         respectAgentPositioning = respectAgentPositioning, isAutoScrollEnabled = isAutoScrollEnabled,
-                                        displayedCurrentLineIndex = deferredCurrentLineIndex, romanizeAsMain = romanizeAsMain,
+                                        // Capped so the lines beyond it get the same value and skip recomposing on line changes
+                                        currentLineDistance = if (deferredCurrentLineIndex >= 0) abs(index - deferredCurrentLineIndex).coerceAtMost(LINE_DISTANCE_MAX) else -1,
+                                        romanizeAsMain = romanizeAsMain,
                                         enabledLanguages = enabledLanguages, romanizeLyrics = currentSong?.romanizeLyrics == true,
                                         onSizeChanged = { itemHeights[listIndex] = it },
                                         onClick = {

@@ -81,7 +81,6 @@ import com.metrolist.music.lyrics.WordTimestamp
 import com.metrolist.music.playback.PlayerConnection
 import com.metrolist.music.ui.screens.settings.LyricsPosition
 import kotlinx.coroutines.isActive
-import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.exp
 import kotlin.math.roundToInt
@@ -102,6 +101,7 @@ private const val GLOW_BASE_STRENGTH = 0.35f
 private const val GLOW_RELEASE_MS = 420.0
 
 private const val DEPTH_MAX_LINES = 4
+internal const val LINE_DISTANCE_MAX = DEPTH_MAX_LINES + 1
 private const val DEPTH_BLUR_STEPS_PER_LINE = 4
 private val DEPTH_BLUR_PER_LINE = 1.2.dp
 private const val DEPTH_DIM_PER_LINE = 0.07f
@@ -243,7 +243,6 @@ private fun String.toGraphemeClusters(): List<String> {
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 internal fun LyricsLine(
-    index: Int,
     item: LyricsEntry,
     isSynced: Boolean,
     isActiveLine: Boolean,
@@ -262,7 +261,8 @@ internal fun LyricsLine(
     lyricsTextPosition: LyricsPosition,
     respectAgentPositioning: Boolean,
     isAutoScrollEnabled: Boolean,
-    displayedCurrentLineIndex: Int,
+    /** Lines from the current one, at most [LINE_DISTANCE_MAX]; farther lines look the same. */
+    currentLineDistance: Int,
     romanizeAsMain: Boolean,
     enabledLanguages: List<String>,
     romanizeLyrics: Boolean,
@@ -301,9 +301,9 @@ internal fun LyricsLine(
     // Off while the user scrolls or selects, where every line should be readable.
     val depthTarget = if (
         effects == LyricsEffects.FULL && isSynced && isAutoScrollEnabled && !isSelectionModeActive && !isActiveLine &&
-        !(item.isBackground && bgVisible) && displayedCurrentLineIndex >= 0
+        !(item.isBackground && bgVisible) && currentLineDistance >= 0
     ) {
-        abs(index - displayedCurrentLineIndex).coerceAtMost(DEPTH_MAX_LINES).toFloat()
+        currentLineDistance.coerceAtMost(DEPTH_MAX_LINES).toFloat()
     } else 0f
     val depth by animateFloatAsState(depthTarget, tween(600, easing = FastOutSlowInEasing), label = "lyricsLineDepth")
     val depthBlurs = remember(density) { arrayOfNulls<RenderEffect>(DEPTH_MAX_LINES * DEPTH_BLUR_STEPS_PER_LINE + 1) }
@@ -369,8 +369,8 @@ internal fun LyricsLine(
                 val focusedAlpha = if (item.isBackground) 0.5f else 0.3f
                 val targetAlpha = if (!isSynced || item.isBackground || isActiveLine) {
                     activeAlpha
-                } else if (isAutoScrollEnabled && displayedCurrentLineIndex >= 0) {
-                    when (abs(index - displayedCurrentLineIndex)) {
+                } else if (isAutoScrollEnabled && currentLineDistance >= 0) {
+                    when (currentLineDistance) {
                         0 -> focusedAlpha
                         1 -> 0.2f; 2 -> 0.2f; 3 -> 0.15f; 4 -> 0.1f; else -> 0.08f
                     }
@@ -420,7 +420,7 @@ internal fun LyricsLine(
                     }
                 } else null
 
-                if (isSynced && effectiveWords != null && (isActiveLine || abs(index - displayedCurrentLineIndex) <= 3) && mainText != null) {
+                if (isSynced && effectiveWords != null && (isActiveLine || currentLineDistance <= 3) && mainText != null) {
                     WordLevelLyrics(
                         mainText = mainText,
                         words = effectiveWords,
