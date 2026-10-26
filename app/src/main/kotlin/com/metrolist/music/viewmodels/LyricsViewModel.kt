@@ -24,6 +24,11 @@ import kotlinx.coroutines.withContext
 class LyricsViewModel @Inject constructor() : ViewModel() {
     companion object {
         private val timestampRegex = Regex("\\[\\d{1,2}:\\d{2}")
+        private const val MIN_INTERVAL_GAP_MS = 4000L
+        private const val LAST_WORD_HOLD_MS = 2000L
+        private const val MS_PER_CHAR = 110L
+        private const val MIN_LINE_MS = 1500L
+        private const val MAX_LINE_MS = 8000L
     }
 
     private var processJob: kotlinx.coroutines.Job? = null
@@ -89,28 +94,40 @@ class LyricsViewModel @Inject constructor() : ViewModel() {
             _mergedLyricsList.value = result
             return
         }
+        // Lines can overlap (background vocals, duets), so a break only starts once every line before it has ended
+        var latestEnd = Long.MIN_VALUE
         lines.forEachIndexed { i, entry ->
             if (entry.text.isNotBlank()) {
                 result.add(LyricsListItem.Line(i, entry))
             }
             if (showIntervalIndicator && i < lines.size - 1) {
                 val nextStart = lines[i + 1].time
-                val currentEnd = if (!entry.words.isNullOrEmpty()) {
-                    (entry.words.last().endTime * 1000).toLong()
-                } else if (entry.text.isBlank()) {
-                    entry.time
-                } else {
-                    null
-                }
+                latestEnd = maxOf(latestEnd, singingEndMs(entry, nextStart))
+                val currentEnd = latestEnd
 
-                if (currentEnd != null && currentEnd < nextStart) {
+                if (currentEnd < nextStart) {
                     val gap = nextStart - currentEnd
-                    if (gap > 4000L) {
+                    if (gap > MIN_INTERVAL_GAP_MS) {
                         result.add(LyricsListItem.Indicator(i, gap, currentEnd, nextStart, lines[i + 1].agent))
                     }
                 }
             }
         }
         _mergedLyricsList.value = result
+    }
+
+    // Line-synced lyrics only give start times, and word-synced ones often leave the last word running
+    // until the next line, so in both cases the line is taken to end once it has plausibly been sung
+    private fun singingEndMs(entry: LyricsEntry, nextStart: Long): Long {
+        val words = entry.words
+        if (!words.isNullOrEmpty()) {
+            val end = (words.last().endTime * 1000).toLong()
+            if (end < nextStart) return end
+            return minOf(end, (words.last().startTime * 1000).toLong() + LAST_WORD_HOLD_MS)
+        }
+        if (entry.text.isBlank()) return entry.time
+        // CJK characters are a syllable each, so they take longer to sing than a Latin letter
+        val weight = entry.text.sumOf { c -> if (c.isWhitespace()) 0L else if (c.code >= 0x2E80) 3L else 1L }
+        return minOf(nextStart, entry.time + (weight * MS_PER_CHAR).coerceIn(MIN_LINE_MS, MAX_LINE_MS))
     }
 }

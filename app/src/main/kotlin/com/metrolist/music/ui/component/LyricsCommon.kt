@@ -89,7 +89,8 @@ internal fun IntervalIndicator(
         if (visible) {
             settledHeightPx = fullHeightPx
             rowHeightPx.animateTo(1f, tween(200))
-            alpha.animateTo(1f, tween(200))
+            // The lines below take longer to move out of the way, so this waits for most of that
+            alpha.animateTo(1f, tween(300, delayMillis = 150))
         } else {
             alpha.animateTo(0f, tween(200))
             settledHeightPx = 0
