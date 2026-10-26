@@ -1,0 +1,15 @@
+MetroQueue 1.3.0: Lyrics
+
+Experimental lyrics
+- Glow on every sung word, lined up with your lyrics font, fading out smoothly at the end of a line
+- Soft halo behind the current line, which also grows slightly
+- Depth blur and dimming on the surrounding lines
+- Glow that follows the music (brightens with louder parts)
+- Animated background in the artwork's colours, gently swelling on the beat
+- Instrumental-break indicator now shows during real breaks and breathes with the beat
+- New setting: Appearance > Lyrics > Lyrics effects (Full / Subtle / Off); battery saver switches to Subtle
+- Smoother animations and much lower battery and CPU use: no full redraw every frame, effects pause while paused or when the player is minimised
+- The screen only stays on while music is playing
+
+Mix
+- Manual skips blend in at most 1 s, and quick or repeated skips cut straight through with no overlapping audio
