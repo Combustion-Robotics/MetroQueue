@@ -3,7 +3,7 @@ name: Fork Builds
 # Optimized (release) MetroQueue APKs, signed with the project key (DEV_KEYSTORE_BASE64).
 # main -> "MetroQueue" (com.combustion.metroqueue): a normal release v<versionName> the first time a version is built.
 #         Bump versionName in app/build.gradle.kts to publish the next release.
-# dev  -> "MetroQueue Beta" (com.combustion.metroqueue.beta): the rolling "dev Builds" pre-release.
+# dev  -> "MetroQueue Beta" (com.combustion.metroqueue.beta): a "dev Build" pre-release per commit.
 # tv   -> "MetroQueue TV" (com.combustion.metroqueue.tv): APK artifact only, no release.
 # any other branch (e.g. mix) -> "MetroQueue Mix" (com.combustion.metroqueue.mix): APK artifact only, no release.
 on:
@@ -72,7 +72,7 @@ jobs:
             # The in-app updater looks for exactly this file name
             APK="MetroQueue.apk"
           elif [ "${{ github.ref_name }}" = "dev" ]; then
-            TAG="dev-builds"
+            TAG="dev-v$VERSION-${GITHUB_SHA::7}"
             APK="MetroQueue-Beta-v$VERSION-${GITHUB_SHA::7}.apk"
           elif [ "${{ github.ref_name }}" = "tv" ]; then
             TAG=""
@@ -108,7 +108,6 @@ jobs:
               gh release create "$TAG" out/*.apk --target "$GITHUB_SHA" --latest --title "MetroQueue ${TAG#v}" --notes "$NOTES"
             fi
           else
-            # One rolling pre-release that always holds the newest dev build
-            gh release delete "$TAG" --cleanup-tag --yes || true
-            gh release create "$TAG" out/*.apk --target "$GITHUB_SHA" --prerelease --latest=false --title "dev Builds" --notes "$NOTES"
+            # Every dev build gets its own pre-release
+            gh release create "$TAG" out/*.apk --target "$GITHUB_SHA" --prerelease --latest=false --title "dev Build ${TAG#dev-}" --notes "$NOTES"
           fi
