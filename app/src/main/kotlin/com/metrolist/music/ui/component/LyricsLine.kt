@@ -40,7 +40,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
@@ -55,7 +54,6 @@ import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.graphics.BlurEffect
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.LinearGradientShader
-import androidx.compose.ui.graphics.RenderEffect
 import androidx.compose.ui.graphics.Shader
 import androidx.compose.ui.graphics.ShaderBrush
 import androidx.compose.ui.graphics.TileMode
@@ -102,9 +100,12 @@ private const val GLOW_RELEASE_MS = 420.0
 
 private const val DEPTH_MAX_LINES = 4
 internal const val LINE_DISTANCE_MAX = DEPTH_MAX_LINES + 1
-private const val DEPTH_BLUR_STEPS_PER_LINE = 4
 private val DEPTH_BLUR_PER_LINE = 1.2.dp
 private const val DEPTH_DIM_PER_LINE = 0.07f
+// Text alpha of lines with depth; any further dimming goes through their layer
+private const val DEPTH_TEXT_ALPHA = 0.2f
+
+private val LINE_SHAPE = RoundedCornerShape(8.dp)
 
 private const val ACTIVE_LINE_SCALE = 1.04f
 
@@ -334,8 +335,8 @@ internal fun LyricsLine(
 
     // Lines around the current one are blurred and dimmed by their distance to it, for depth.
     // Off while the user scrolls or selects, where every line should be readable. Lines further
-    // than DEPTH_MAX_LINES sit one step beyond it, where the blur has faded back out: they are
-    // nearly transparent or off screen, and skip the blur's offscreen layer.
+    // than DEPTH_MAX_LINES sit one step beyond it without blur: they are nearly transparent or
+    // off screen, and skip the blur's offscreen layer.
     val depthTarget = if (
         effects == LyricsEffects.FULL && isSynced && isAutoScrollEnabled && !isSelectionModeActive && !isActiveLine &&
         !(item.isBackground && bgVisible) && currentLineDistance >= 0
@@ -343,7 +344,30 @@ internal fun LyricsLine(
         currentLineDistance.coerceAtMost(LINE_DISTANCE_MAX).toFloat()
     } else 0f
     val depth by animateFloatAsState(depthTarget, tween(600, easing = FastOutSlowInEasing), label = "lyricsLineDepth")
-    val depthBlurs = remember(density) { arrayOfNulls<RenderEffect>(DEPTH_MAX_LINES * DEPTH_BLUR_STEPS_PER_LINE + 1) }
+    // One fixed radius per distance, switched rather than animated, so a blurred line is blurred
+    // again only when its distance changes instead of on every frame of the transition
+    val blurLines = depthTarget.toInt().let { if (it <= DEPTH_MAX_LINES) it else 0 }
+    val depthBlur = remember(density, blurLines) {
+        if (blurLines == 0 || Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return@remember null
+        val radius = with(density) { (DEPTH_BLUR_PER_LINE * blurLines).toPx() }
+        BlurEffect(radius, radius, TileMode.Decal)
+    }
+
+    val inactiveAlpha = if (item.isBackground) 0.08f else 0.2f
+    val activeAlpha = 1f
+    val focusedAlpha = if (item.isBackground) 0.5f else 0.3f
+    val targetAlpha = if (!isSynced || item.isBackground || isActiveLine) {
+        activeAlpha
+    } else if (isAutoScrollEnabled && currentLineDistance >= 0) {
+        when (currentLineDistance) {
+            0 -> focusedAlpha
+            1 -> 0.2f; 2 -> 0.2f; 3 -> 0.15f; 4 -> 0.1f; else -> 0.08f
+        }
+    } else inactiveAlpha
+    // Lines with depth keep their text at one alpha and fade through their layer instead, so
+    // moving a blurred line further away doesn't redraw and blur it again every frame
+    val textTargetAlpha = if (depthTarget > 0f) maxOf(targetAlpha, DEPTH_TEXT_ALPHA) else targetAlpha
+    val layerDim by animateFloatAsState(targetAlpha / textTargetAlpha, tween(400, easing = FastOutSlowInEasing), label = "lyricsLineDim")
 
     // Drawn larger only, so the measured line heights and positions stay as they are
     val lineScale by animateFloatAsState(
@@ -362,22 +386,17 @@ internal fun LyricsLine(
             scaleX = lineScale
             scaleY = lineScale
             transformOrigin = scaleOrigin
-            alpha = 1f - DEPTH_DIM_PER_LINE * depth.coerceAtMost(DEPTH_MAX_LINES.toFloat())
+            alpha = (1f - DEPTH_DIM_PER_LINE * depth.coerceAtMost(DEPTH_MAX_LINES.toFloat())) * layerDim
             // Dimming alone then needs no offscreen layer
             compositingStrategy = CompositingStrategy.ModulateAlpha
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                val blurDepth = if (depth <= DEPTH_MAX_LINES) depth else DEPTH_MAX_LINES * (DEPTH_MAX_LINES + 1 - depth)
-                // Bucketed so animating the radius reuses a few effects instead of one per frame
-                val step = (blurDepth * DEPTH_BLUR_STEPS_PER_LINE).roundToInt()
-                renderEffect = if (step == 0) null else depthBlurs[step] ?: run {
-                    val radius = DEPTH_BLUR_PER_LINE.toPx() * step / DEPTH_BLUR_STEPS_PER_LINE
-                    BlurEffect(radius, radius, TileMode.Decal).also { depthBlurs[step] = it }
-                }
-            }
+            renderEffect = depthBlur
+            // Clipped to its own outline, the blur's clip stays the same while the line moves, so
+            // the platform reuses the blurred image rather than blurring it again every frame
+            shape = LINE_SHAPE
+            clip = true
         }
         .fillMaxWidth()
         .onSizeChanged { onSizeChanged(it.height) }
-        .clip(RoundedCornerShape(8.dp))
         .combinedClickable(
             onClick = onClick,
             onLongClick = onLongClick
@@ -404,19 +423,7 @@ internal fun LyricsLine(
         @Composable
         fun LyricContent() {
             Column(modifier = Modifier.fillMaxWidth(), horizontalAlignment = agentAlignment) {
-                val inactiveAlpha = if (item.isBackground) 0.08f else 0.2f
-                val activeAlpha = 1f
-                val focusedAlpha = if (item.isBackground) 0.5f else 0.3f
-                val targetAlpha = if (!isSynced || item.isBackground || isActiveLine) {
-                    activeAlpha
-                } else if (isAutoScrollEnabled && currentLineDistance >= 0) {
-                    when (currentLineDistance) {
-                        0 -> focusedAlpha
-                        1 -> 0.2f; 2 -> 0.2f; 3 -> 0.15f; 4 -> 0.1f; else -> 0.08f
-                    }
-                } else inactiveAlpha
-                
-                val animatedAlpha by animateFloatAsState(targetAlpha, tween(400, easing = FastOutSlowInEasing), label = "lyricsLineAlpha")
+                val animatedAlpha by animateFloatAsState(textTargetAlpha, tween(400, easing = FastOutSlowInEasing), label = "lyricsLineAlpha")
                 val lineColor = expressiveAccent.copy(alpha = if (item.isBackground) focusedAlpha else animatedAlpha)
                 
                 val romanizedTextState by item.romanizedTextFlow.collectAsStateWithLifecycle()
@@ -911,10 +918,10 @@ private fun WordLevelLyrics(
                 }
 
                 val waveHeightPx = WAVE_HEIGHT.toPx() * motionScale
-                // Neutral (0.5) leaves the glow as it is; louder passages brighten and widen it a little
+                // Neutral (0.5) leaves the glow as it is; louder passages brighten it a little. Only the
+                // alpha follows the music: a steady radius keeps each glyph on one blur mask filter
                 val level = musicLevel()
                 val glowAlphaScale = 0.7f + 0.6f * level
-                val glowRadiusScale = 0.85f + 0.3f * level
                 val glowMaxRadiusPx = GLOW_MAX_RADIUS.toPx()
 
                 // Main drawing loop: iterate over cluster indices so each visual
@@ -970,7 +977,7 @@ private fun WordLevelLyrics(
                             val strength = if (glowLevel > 0.01f) wordGlowStrength(wordItem, effects) else 0f
                             if (strength * glowLevel > 0.01f) {
                                 val glowAlpha = (GLOW_MAX_ALPHA * strength * glowLevel * glowAlphaScale).coerceAtMost(1f)
-                                val glowRadius = glowMaxRadiusPx * (0.4f + 0.6f * strength) * glowRadiusScale
+                                val glowRadius = glowMaxRadiusPx * (0.4f + 0.6f * strength)
                                 glowAlphas[i] = glowAlpha
                                 glowRadii[i] = glowRadius
                                 drawIntoCanvas { canvas ->
