@@ -196,8 +196,8 @@ private val BLOB_PHASE = floatArrayOf(0f, 2.1f, 4.2f)
 // The drift is redrawn at about 30 fps, into a layer a quarter of the size scaled back up
 private const val AMBIENT_FRAME_NANOS = 30_000_000L
 private const val AMBIENT_DOWNSCALE = 4
-private const val AMBIENT_SWELL_ALPHA = 0.35f
-private const val AMBIENT_SWELL_SCALE = 0.06f
+private const val AMBIENT_SWELL_ALPHA = 0.12f
+private const val AMBIENT_SWELL_SCALE = 0.02f
 
 /**
  * Soft blobs of the artwork colors drifting behind the lyrics, swelling a little on the beat
