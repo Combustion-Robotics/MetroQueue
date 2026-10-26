@@ -10,7 +10,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.os.PowerManager
-import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.Immutable
@@ -25,13 +25,19 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameMillis
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.drawscope.withTransform
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.Constraints
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -181,15 +187,22 @@ internal fun SongBeat.pulse(positionMs: Long): Float {
     return wave * wave * wave
 }
 
-// Speeds (cycles per second) and phases of each blob's slow drift; uneven so it never repeats visibly
-private val BLOB_SPEED_X = floatArrayOf(0.050f, 0.037f, 0.043f)
-private val BLOB_SPEED_Y = floatArrayOf(0.041f, 0.053f, 0.031f)
+// Speeds (cycles per second, periods of about 9 to 15 s) and phases of each blob's drift; uneven
+// so it never repeats visibly
+private val BLOB_SPEED_X = floatArrayOf(0.095f, 0.072f, 0.083f)
+private val BLOB_SPEED_Y = floatArrayOf(0.079f, 0.110f, 0.066f)
 private val BLOB_PHASE = floatArrayOf(0f, 2.1f, 4.2f)
 
+// The drift is redrawn at about 30 fps, into a layer a quarter of the size scaled back up
+private const val AMBIENT_FRAME_NANOS = 30_000_000L
+private const val AMBIENT_DOWNSCALE = 4
+private const val AMBIENT_SWELL_ALPHA = 0.35f
+private const val AMBIENT_SWELL_SCALE = 0.06f
+
 /**
- * Soft blobs of the artwork colors drifting slowly behind the lyrics, swelling a little on the
- * beat when the tempo is known. Plain radial gradients, no blur; it only moves while playing
- * and [animated].
+ * Soft blobs of the artwork colors drifting behind the lyrics, swelling a little on the beat
+ * when the tempo is known. Plain radial gradients, no blur; it only moves while playing and
+ * [animated].
  */
 @Composable
 internal fun LyricsAmbientBackground(
@@ -210,7 +223,7 @@ internal fun LyricsAmbientBackground(
             val color = colors[i % colors.size]
             Brush.radialGradient(
                 0f to color,
-                0.6f to color.copy(alpha = color.alpha * 0.35f),
+                0.6f to color.copy(alpha = color.alpha * 0.45f),
                 1f to color.copy(alpha = 0f),
                 center = Offset.Zero,
                 radius = 1f,
@@ -226,28 +239,66 @@ internal fun LyricsAmbientBackground(
             return@LaunchedEffect
         }
         var lastNanos = withFrameNanos { it }
+        var pendingNanos = 0L
         while (isActive) {
             withFrameNanos { now ->
-                timeSec += (now - lastNanos) / 1_000_000_000f
+                pendingNanos += now - lastNanos
                 lastNanos = now
+                if (pendingNanos >= AMBIENT_FRAME_NANOS) {
+                    timeSec += pendingNanos / 1_000_000_000f
+                    pendingNanos = 0L
+                }
                 pulse = beat?.pulse(playerConnection.player.currentPosition) ?: 0f
             }
         }
     }
 
-    Canvas(modifier) {
-        val t = timeSec
-        val beatPulse = pulse
-        val baseRadius = maxOf(size.width, size.height) * 0.62f * (1f + 0.04f * beatPulse)
-        for (i in brushes.indices) {
-            val x = size.width * (0.5f + 0.38f * sin(t * BLOB_SPEED_X[i] * 2 * PI.toFloat() + BLOB_PHASE[i]))
-            val y = size.height * (0.5f + 0.4f * cos(t * BLOB_SPEED_Y[i] * 2 * PI.toFloat() + BLOB_PHASE[i] * 1.3f))
-            withTransform({
-                translate(x, y)
-                scale(baseRadius, baseRadius, pivot = Offset.Zero)
-            }) {
-                drawCircle(brushes[i], radius = 1f, center = Offset.Zero, alpha = (alpha * (1f + 0.25f * beatPulse)).coerceAtMost(1f))
+    // Blobs are drawn at the beat's peak alpha; the layer brings them down between beats
+    val blobAlpha = alpha
+    val peakAlpha = (blobAlpha * (1f + AMBIENT_SWELL_ALPHA)).coerceAtMost(1f)
+    Spacer(
+        modifier
+            .graphicsLayer {
+                // The swell only changes how the kept image is composited, so it can follow every frame
+                val swell = pulse
+                scaleX = 1f + AMBIENT_SWELL_SCALE * swell
+                scaleY = scaleX
+                this.alpha = if (peakAlpha > 0f) (blobAlpha * (1f + AMBIENT_SWELL_ALPHA * swell)).coerceAtMost(1f) / peakAlpha else 0f
+                compositingStrategy = CompositingStrategy.ModulateAlpha
             }
-        }
-    }
+            .layout { measurable, constraints ->
+                // Soft gradients look the same drawn small and scaled up with filtering, for a
+                // fraction of the pixels; the kept layer is only redrawn when the drift moves
+                val width = constraints.maxWidth
+                val height = constraints.maxHeight
+                val placeable = measurable.measure(
+                    Constraints.fixed(
+                        ((width + AMBIENT_DOWNSCALE - 1) / AMBIENT_DOWNSCALE).coerceAtLeast(1),
+                        ((height + AMBIENT_DOWNSCALE - 1) / AMBIENT_DOWNSCALE).coerceAtLeast(1),
+                    ),
+                )
+                layout(width, height) {
+                    placeable.placeWithLayer(0, 0) {
+                        scaleX = width.toFloat() / placeable.width
+                        scaleY = height.toFloat() / placeable.height
+                        transformOrigin = TransformOrigin(0f, 0f)
+                        compositingStrategy = CompositingStrategy.Offscreen
+                    }
+                }
+            }
+            .drawBehind {
+                val t = timeSec
+                val baseRadius = maxOf(size.width, size.height) * 0.5f
+                for (i in brushes.indices) {
+                    val x = size.width * (0.5f + 0.38f * sin(t * BLOB_SPEED_X[i] * 2 * PI.toFloat() + BLOB_PHASE[i]))
+                    val y = size.height * (0.5f + 0.4f * cos(t * BLOB_SPEED_Y[i] * 2 * PI.toFloat() + BLOB_PHASE[i] * 1.3f))
+                    withTransform({
+                        translate(x, y)
+                        scale(baseRadius, baseRadius, pivot = Offset.Zero)
+                    }) {
+                        drawCircle(brushes[i], radius = 1f, center = Offset.Zero, alpha = peakAlpha)
+                    }
+                }
+            },
+    )
 }
