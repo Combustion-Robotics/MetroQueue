@@ -10,15 +10,18 @@ import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.Dp
 
+// The DstIn masks need an offscreen layer. A kept one only redraws the parts that change each
+// frame, where an alpha below 1 would draw everything into a fresh buffer every frame.
 fun Modifier.fadingEdge(
     left: Dp? = null,
     top: Dp? = null,
     right: Dp? = null,
     bottom: Dp? = null,
-) = graphicsLayer(alpha = 0.99f)
+) = graphicsLayer(compositingStrategy = CompositingStrategy.Offscreen)
     .drawWithContent {
         drawContent()
         if (top != null) {
