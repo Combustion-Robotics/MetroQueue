@@ -511,15 +511,21 @@ class MusicService :
     private var crossfadeProgress = 0f
     private val crossfadeSyncListener =
         object : Player.Listener {
-            // The outgoing track pauses and resumes with the incoming one
-            override fun onIsPlayingChanged(isPlaying: Boolean) {
+            // The outgoing track pauses and resumes with the incoming one, but keeps playing while that one buffers
+            override fun onPlayWhenReadyChanged(
+                playWhenReady: Boolean,
+                reason: Int,
+            ) {
                 if (!isCrossfading) return
-                if (isPlaying) fadingPlayer?.play() else fadingPlayer?.pause()
+                if (playWhenReady) fadingPlayer?.play() else fadingPlayer?.pause()
             }
         }
     private var fadingAudioSessionId = C.AUDIO_SESSION_ID_UNSET
     private var crossfadeJob: Job? = null
     private var crossfadeWatchJob: Job? = null
+
+    // Holds an automatic transition that is due until its incoming player is ready
+    private var incomingWaitJob: Job? = null
     private var introScanJob: Job? = null
     private var tailMeteredPlayer: ExoPlayer? = null
     private var tailMeteredMediaId: String? = null
@@ -5261,6 +5267,10 @@ class MusicService :
         prefetchNextSongHead(plan)
 
         val position = player.currentPosition
+        // A due transition waiting for the next song to be ready keeps waiting, with the old song still playing
+        if (incomingWaitJob?.isActive == true && position >= plan.startPositionMs - CROSSFADE_POSITION_TOLERANCE_MS) return
+        // One started early, or before seeking back, is armed again below
+        cancelIncomingWait()
         if (position >= plan.startPositionMs) {
             releaseIncomingPlayer()
             stopTailMetering()
@@ -5706,6 +5716,17 @@ class MusicService :
             }
         val targetIndex = autoTransitionTargetIndex()
         if (targetIndex == C.INDEX_UNSET) return
+        val target = player.getMediaItemAt(targetIndex)
+        // Fading into a player that is still buffering would hold the old song back; keep it playing
+        // until the next one can start at once. A song whose pre-buffering failed starts as before, and so
+        // does one after a track shorter than the overlap, which would otherwise need a third player.
+        if (!isCrossfading && target.mediaId != failedIncomingMediaId) {
+            val incoming = positionIncomingPlayer(target, plan) ?: return
+            if (incoming.playbackState != Player.STATE_READY) {
+                awaitIncomingPlayer(incoming, outgoingSilent)
+                return
+            }
+        }
         val reason =
             if (targetIndex == player.currentMediaItemIndex) {
                 Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT
@@ -5713,6 +5734,30 @@ class MusicService :
                 Player.MEDIA_ITEM_TRANSITION_REASON_AUTO
             }
         startCrossfade(targetIndex, plan, reason)
+    }
+
+    /** Starts the due automatic transition once [incoming] is ready; the old song plays on meanwhile. */
+    private fun awaitIncomingPlayer(
+        incoming: ExoPlayer,
+        outgoingSilent: Boolean,
+    ) {
+        if (incomingWaitJob?.isActive == true) return
+        val mediaId = player.currentMediaItem?.mediaId
+        incomingWaitJob =
+            scope.launch {
+                // Ends with the old song: the player then moves on to the next one by itself
+                while (incoming.playbackState != Player.STATE_READY) {
+                    delay(INCOMING_READY_POLL_MS)
+                    if (secondaryPlayer !== incoming || player.currentMediaItem?.mediaId != mediaId) return@launch
+                }
+                incomingWaitJob = null
+                startAutoCrossfade(outgoingSilent)
+            }
+    }
+
+    private fun cancelIncomingWait() {
+        incomingWaitJob?.cancel()
+        incomingWaitJob = null
     }
 
     /**
@@ -5906,6 +5951,7 @@ class MusicService :
     }
 
     private fun releaseIncomingPlayer() {
+        cancelIncomingWait()
         introScanJob?.cancel()
         introScanJob = null
         val incoming = secondaryPlayer ?: return
@@ -5920,18 +5966,29 @@ class MusicService :
         target: MediaItem,
         plan: TransitionPlan,
     ): ExoPlayer? {
+        val incoming = positionIncomingPlayer(target, plan) ?: return null
+        secondaryPlayer = null
+        secondaryTargetMediaId = null
+        return incoming
+    }
+
+    /** The pre-buffered player for [target] (prepared now when none matches), paused where [plan] starts it. */
+    private fun positionIncomingPlayer(
+        target: MediaItem,
+        plan: TransitionPlan,
+    ): ExoPlayer? {
         if (secondaryTargetMediaId != target.mediaId) {
             releaseIncomingPlayer()
             prepareIncomingPlayer(target, plan.style, scanIntro = false, startMs = plan.incomingStartMs)
         }
         val incoming = secondaryPlayer ?: return null
-        secondaryPlayer = null
-        secondaryTargetMediaId = null
 
         // An unfinished intro scan is applied with what it has measured so far
         val scanInProgress = introScanJob?.isActive == true
         introScanJob?.cancel()
         introScanJob = null
+        // The scan may be playing the muted player
+        if (scanInProgress) incoming.pause()
         val fixedStartMs = plan.incomingStartMs
         val meter = playerLevelMeters[incoming]
         if (fixedStartMs != null) {
@@ -5963,6 +6020,7 @@ class MusicService :
         crossfadeMessage = null
         crossfadeWatchJob?.cancel()
         crossfadeWatchJob = null
+        cancelIncomingWait()
         stopTailMetering()
         if (isCrossfading) cleanupCrossfade(reschedule = false)
         endTempoNudge(gradual = false)
@@ -6181,6 +6239,7 @@ class MusicService :
 
         private const val CROSSFADE_STEPS = 20
         private const val MANUAL_SKIP_START_TIMEOUT_MS = 500L
+        private const val INCOMING_READY_POLL_MS = 50L
         private const val CUT_END_MARGIN_MS = 150L
 
         // Same rule as PlayerConnection.seekToPrevious and Media3's default: later than this restarts the song
