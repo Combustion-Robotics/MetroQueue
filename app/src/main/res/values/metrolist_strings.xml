@@ -1166,4 +1166,16 @@
     <string name="lyrics_effects_subtle">Subtle</string>
     <string name="lyrics_effects_off">Off</string>
     <string name="lyrics_effects_full_desc">Full, Subtle while battery saver is on</string>
+    <string name="vibes">Vibes</string>
+    <string name="vibe_mode">Vibe mode</string>
+    <string name="vibe_mode_desc">A cozy full-screen scene for your music</string>
+    <string name="create_vibe">Create vibe</string>
+    <string name="vibe_editor_coming_soon">Custom vibes are coming soon</string>
+    <string name="vibe_start_question">What should play?</string>
+    <string name="vibe_play_music">Play the vibe\'s music</string>
+    <string name="vibe_keep_playing">Keep what\'s playing</string>
+    <string name="vibe_winter_dusk">Winter dusk</string>
+    <string name="vibe_rainy_city">Rainy city night</string>
+    <string name="vibe_starry_lake">Starry lake</string>
+    <string name="vibe_spring_blossoms">Spring blossoms</string>
 </resources>

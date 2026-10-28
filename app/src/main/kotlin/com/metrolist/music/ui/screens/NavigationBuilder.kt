@@ -62,6 +62,11 @@ import com.metrolist.music.ui.screens.settings.integrations.LastFMSettings
 import com.metrolist.music.ui.screens.settings.integrations.ListenTogetherSettings
 
 import com.metrolist.music.ui.screens.wrapped.WrappedScreen
+import com.metrolist.music.ui.vibe.VIBE_EDIT_ROUTE
+import com.metrolist.music.ui.vibe.VIBE_PLAYER_ROUTE
+import com.metrolist.music.ui.vibe.VibeEditScreen
+import com.metrolist.music.ui.vibe.VibePlayerScreen
+import com.metrolist.music.ui.vibe.VibesScreen
 import com.metrolist.music.utils.rememberEnumPreference
 import com.metrolist.music.utils.rememberPreference
 
@@ -97,6 +102,28 @@ fun NavGraphBuilder.navigationBuilder(
 
     composable(Screens.Library.route) {
         LibraryScreen()
+    }
+
+    composable(Screens.Vibes.route) {
+        VibesScreen(navController)
+    }
+
+    composable(VIBE_EDIT_ROUTE) {
+        VibeEditScreen(navController)
+    }
+
+    composable(
+        route = "$VIBE_PLAYER_ROUTE/{id}?music={music}",
+        arguments =
+            listOf(
+                navArgument("id") { type = NavType.StringType },
+                navArgument("music") {
+                    type = NavType.BoolType
+                    defaultValue = false
+                },
+            ),
+    ) {
+        VibePlayerScreen(it.arguments?.getString("id").orEmpty(), it.arguments?.getBoolean("music") ?: false)
     }
 
     composable(Screens.ListenTogether.route) {
