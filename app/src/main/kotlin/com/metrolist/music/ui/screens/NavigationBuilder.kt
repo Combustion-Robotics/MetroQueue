@@ -108,8 +108,17 @@ fun NavGraphBuilder.navigationBuilder(
         VibesScreen(navController)
     }
 
-    composable(VIBE_EDIT_ROUTE) {
-        VibeEditScreen(navController)
+    composable(
+        route = "$VIBE_EDIT_ROUTE?id={id}",
+        arguments =
+            listOf(
+                navArgument("id") {
+                    type = NavType.StringType
+                    nullable = true
+                },
+            ),
+    ) {
+        VibeEditScreen(navController, it.arguments?.getString("id"))
     }
 
     composable(

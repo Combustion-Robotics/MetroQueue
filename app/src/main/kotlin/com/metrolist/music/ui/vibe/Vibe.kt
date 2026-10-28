@@ -6,6 +6,8 @@
 package com.metrolist.music.ui.vibe
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
 import androidx.navigation.NavController
@@ -22,7 +24,9 @@ import com.metrolist.music.playback.queues.YouTubeQueue
 import com.metrolist.music.ui.vibe.scene.SceneSpec
 import com.metrolist.music.ui.vibe.scene.VibeScenes
 import kotlinx.coroutines.flow.first
+import kotlinx.serialization.Serializable
 
+@Serializable
 data class Vibe(
     val id: String,
     val name: String,
@@ -30,7 +34,8 @@ data class Vibe(
     val music: VibeMusic,
 )
 
-/** First set source wins: a local playlist, a YouTube playlist, else an endless radio from [seed]. */
+/** First set source wins: a local playlist with songs, a YouTube playlist, else an endless radio from [seed]. */
+@Serializable
 data class VibeMusic(
     val localPlaylistId: String? = null,
     val playlistId: String? = null,
@@ -42,10 +47,18 @@ const val VIBE_PLAYER_ROUTE = "vibe/play"
 
 fun NavController.openVibe(id: String, playMusic: Boolean) = navigate("$VIBE_PLAYER_ROUTE/$id?music=$playMusic")
 
+/** Edits a custom vibe; for a preset, edits a new copy of it. */
+fun NavController.editVibe(id: String) = navigate("$VIBE_EDIT_ROUTE?id=$id")
+
+/** The presets followed by the user's own vibes. */
 @Composable
 fun rememberVibes(): List<Vibe> {
     val context = LocalContext.current
-    return remember(context) {
+    val custom by remember(context) {
+        CustomVibes.initialize(context)
+        CustomVibes.vibes
+    }.collectAsState()
+    val presets = remember(context) {
         listOf(
             Vibe("winter_dusk", context.getString(R.string.vibe_winter_dusk), VibeScenes.winterDusk, VibeMusic(seed = "lofi winter chill")),
             Vibe("rainy_city", context.getString(R.string.vibe_rainy_city), VibeScenes.rainyCity, VibeMusic(seed = "lofi rainy night city")),
@@ -53,15 +66,19 @@ fun rememberVibes(): List<Vibe> {
             Vibe("spring_blossoms", context.getString(R.string.vibe_spring_blossoms), VibeScenes.springBlossoms, VibeMusic(seed = "japanese lofi spring")),
         )
     }
+    return remember(presets, custom) { presets + custom }
 }
 
 suspend fun playVibeMusic(music: VibeMusic, playerConnection: PlayerConnection, database: MusicDatabase) {
-    when {
-        music.localPlaylistId != null -> {
-            val songs = database.playlistSongs(music.localPlaylistId).first()
-            if (songs.isNotEmpty()) playerConnection.playQueue(ListQueue(items = songs.map { it.song.toMediaItem() }))
+    music.localPlaylistId?.let { id ->
+        val songs = database.playlistSongs(id).first()
+        // A saved YouTube playlist may have no songs stored yet; it then plays from YouTube below.
+        if (songs.isNotEmpty()) {
+            playerConnection.playQueue(ListQueue(items = songs.map { it.song.toMediaItem() }))
+            return
         }
-
+    }
+    when {
         music.playlistId != null -> playerConnection.playQueue(YouTubePlaylistQueue(music.playlistId))
 
         music.seed != null -> {

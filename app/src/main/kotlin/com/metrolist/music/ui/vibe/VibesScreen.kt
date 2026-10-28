@@ -7,6 +7,7 @@ package com.metrolist.music.ui.vibe
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -24,14 +25,10 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -65,7 +62,7 @@ fun VibesScreen(navController: NavController) {
         modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp),
     ) {
         items(vibes, key = { it.id }) { vibe ->
-            VibeCard(name = vibe.name, onClick = { pendingId = vibe.id }) {
+            VibeCard(name = vibe.name, onClick = { pendingId = vibe.id }, onLongClick = { navController.editVibe(vibe.id) }) {
                 VibeScene(vibe.scene, Modifier.fillMaxSize())
             }
         }
@@ -94,8 +91,8 @@ fun VibesScreen(navController: NavController) {
 }
 
 @Composable
-private fun VibeCard(name: String, onClick: () -> Unit, preview: @Composable () -> Unit) {
-    Column(Modifier.clip(CardShape).clickable(onClick = onClick)) {
+private fun VibeCard(name: String, onClick: () -> Unit, onLongClick: (() -> Unit)? = null, preview: @Composable () -> Unit) {
+    Column(Modifier.clip(CardShape).combinedClickable(onClick = onClick, onLongClick = onLongClick)) {
         Box(Modifier.fillMaxWidth().aspectRatio(3f / 4f).clip(CardShape)) { preview() }
         Text(
             text = name,
@@ -153,27 +150,5 @@ fun VibePickerSheet(onStart: (id: String, playMusic: Boolean) -> Unit) {
             onDismiss = { pending = null },
             onStart = { playMusic -> onStart(vibe.id, playMusic) },
         )
-    }
-}
-
-// shortcut: placeholder until the custom vibe editor lands.
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun VibeEditScreen(navController: NavController) {
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text(stringResource(R.string.create_vibe)) },
-                navigationIcon = {
-                    IconButton(onClick = { navController.navigateUp() }) {
-                        Icon(painterResource(R.drawable.arrow_back), contentDescription = null)
-                    }
-                },
-            )
-        },
-    ) { padding ->
-        Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
-            Text(stringResource(R.string.vibe_editor_coming_soon))
-        }
     }
 }

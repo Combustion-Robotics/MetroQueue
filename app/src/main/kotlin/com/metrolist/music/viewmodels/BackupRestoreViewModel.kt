@@ -43,6 +43,7 @@ import com.metrolist.music.playback.MusicService.Companion.PERSISTENT_PLAYER_STA
 import com.metrolist.music.playback.MusicService.Companion.PERSISTENT_QUEUE_FILE
 import com.metrolist.music.playback.mix.CustomTransitionRepository
 import com.metrolist.music.playback.mix.CustomTransitionStore
+import com.metrolist.music.ui.vibe.CustomVibes
 import com.metrolist.music.utils.reportException
 import com.metrolist.music.utils.ArtistNameAliases
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -94,6 +95,8 @@ class BackupRestoreViewModel @Inject constructor(
                     outputStream.write(ArtistNameAliases.serialize().encodeToByteArray())
                     outputStream.putNextEntry(ZipEntry(CustomTransitionStore.FILE_NAME))
                     outputStream.write(runBlocking { customTransitions.exportJson() }.encodeToByteArray())
+                    outputStream.putNextEntry(ZipEntry(CustomVibes.FILE_NAME))
+                    outputStream.write(CustomVibes.export(context).encodeToByteArray())
                     runBlocking(Dispatchers.IO) {
                         database.checkpoint()
                     }
@@ -154,6 +157,7 @@ class BackupRestoreViewModel @Inject constructor(
                 var restoredArtistNameAliases: Map<String, String>? = null
                 // Older backups have none; then the current custom transitions stay as they are
                 var restoredTransitions: String? = null
+                var restoredVibes: String? = null
 
                 context.applicationContext.contentResolver.openInputStream(uri)?.use { raw ->
                     raw.zipInputStream().use { inputStream ->
@@ -171,6 +175,9 @@ class BackupRestoreViewModel @Inject constructor(
                                 }
                                 CustomTransitionStore.FILE_NAME -> {
                                     restoredTransitions = inputStream.readBytes().decodeToString()
+                                }
+                                CustomVibes.FILE_NAME -> {
+                                    restoredVibes = inputStream.readBytes().decodeToString()
                                 }
                                 InternalDatabase.DB_NAME -> {
                                     foundDb = true
@@ -332,6 +339,9 @@ class BackupRestoreViewModel @Inject constructor(
                     ArtistNameAliases.restore(context, restoredArtistNameAliases.orEmpty())
                     restoredTransitions?.let {
                         if (!customTransitions.restore(it)) Timber.tag("RESTORE").w("Skipping unreadable custom transitions")
+                    }
+                    restoredVibes?.let {
+                        if (!CustomVibes.restore(context, it)) Timber.tag("RESTORE").w("Skipping unreadable custom vibes")
                     }
 
                     // 4. Restart — Room will open the swapped DB and run migrations if needed
