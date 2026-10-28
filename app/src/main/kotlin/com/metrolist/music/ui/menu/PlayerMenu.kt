@@ -100,6 +100,8 @@ import com.metrolist.music.ui.component.Material3MenuItemData
 import com.metrolist.music.ui.component.NewAction
 import com.metrolist.music.ui.component.NewActionGrid
 import com.metrolist.music.ui.component.VolumeSlider
+import com.metrolist.music.ui.vibe.VibePickerSheet
+import com.metrolist.music.ui.vibe.openVibe
 import com.metrolist.music.utils.rememberPreference
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -729,6 +731,29 @@ fun PlayerMenu(
                                     onClick = {
                                         navController.navigate("equalizer")
                                         onDismiss()
+                                    },
+                                ),
+                            )
+                            add(
+                                Material3MenuItemData(
+                                    title = { Text(text = stringResource(R.string.vibe_mode)) },
+                                    description = { Text(text = stringResource(R.string.vibe_mode_desc)) },
+                                    icon = {
+                                        Icon(
+                                            painter = painterResource(R.drawable.landscape),
+                                            contentDescription = null,
+                                            modifier = Modifier.size(24.dp),
+                                        )
+                                    },
+                                    onClick = {
+                                        onDismiss()
+                                        bottomSheetPageState.show {
+                                            VibePickerSheet { id, playMusic ->
+                                                bottomSheetPageState.dismiss()
+                                                playerBottomSheetState.collapseSoft()
+                                                navController.openVibe(id, playMusic)
+                                            }
+                                        }
                                     },
                                 ),
                             )
