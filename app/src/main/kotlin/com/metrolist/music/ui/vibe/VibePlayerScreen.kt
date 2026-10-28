@@ -109,8 +109,14 @@ fun VibePlayerScreen(vibeId: String, playMusic: Boolean) {
     }
 }
 
+/** [customControls] replaces the play/pause and next buttons, e.g. with D-pad friendly ones on TV. */
 @Composable
-private fun VibeSongBar(vertical: Boolean, isPlaying: Boolean, modifier: Modifier) {
+internal fun VibeSongBar(
+    vertical: Boolean,
+    isPlaying: Boolean,
+    modifier: Modifier,
+    customControls: (@Composable () -> Unit)? = null,
+) {
     val playerConnection = LocalPlayerConnection.current ?: return
     val metadata by playerConnection.mediaMetadata.collectAsStateWithLifecycle()
     val canSkipNext by playerConnection.canSkipNext.collectAsStateWithLifecycle()
@@ -151,7 +157,7 @@ private fun VibeSongBar(vertical: Boolean, isPlaying: Boolean, modifier: Modifie
             )
         }
     }
-    val controls = @Composable {
+    val controls: @Composable () -> Unit = customControls ?: @Composable {
         IconButton(onClick = playerConnection::togglePlayPause) {
             Icon(
                 painter = painterResource(if (isPlaying) R.drawable.pause else R.drawable.play),

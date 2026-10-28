@@ -98,6 +98,7 @@ private enum class TvTab(
     HOME("home", R.drawable.home_filled, R.string.home),
     SEARCH("search", R.drawable.search, R.string.search),
     LIBRARY("library", R.drawable.library_music_filled, R.string.tv_library),
+    VIBES("vibes", R.drawable.landscape, R.string.vibes),
     SETTINGS("settings", R.drawable.settings, R.string.settings),
 }
 
@@ -218,6 +219,7 @@ fun TvApp(
                         arguments = listOf(navArgument("query") { type = NavType.StringType }),
                     ) { TvSearchResultScreen() }
                     composable(TvTab.LIBRARY.route) { TvLibraryScreen() }
+                    composable(TvTab.VIBES.route) { TvVibesScreen() }
                     composable(TvTab.SETTINGS.route) { TvSettingsScreen() }
                     composable(
                         route = "album/{albumId}",
