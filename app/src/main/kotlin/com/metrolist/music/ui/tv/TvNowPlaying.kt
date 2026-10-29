@@ -6,13 +6,9 @@
 package com.metrolist.music.ui.tv
 
 import android.widget.Toast
-import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -258,35 +254,29 @@ private fun TvNowPlayingContent(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                AnimatedContent(
-                    targetState = showLyrics,
-                    transitionSpec = { fadeIn(tween(250)) togetherWith fadeOut(tween(150)) },
-                    label = "tvLyricsToggle",
-                    modifier = Modifier.weight(1f, fill = showLyrics),
-                ) { lyricsVisible ->
-                    if (lyricsVisible) {
-                        TvLyrics(
-                            playerConnection = playerConnection,
-                            position = position,
-                            duration = duration,
-                            modifier = Modifier.fillMaxSize(),
+                if (!showLyrics) {
+                    metadata.album?.title?.let { album ->
+                        Text(
+                            text = album,
+                            style = MaterialTheme.typography.titleMedium,
+                            color = Color.White.copy(alpha = 0.6f),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
                         )
-                    } else {
-                        Column {
-                            metadata.album?.title?.let { album ->
-                                Text(
-                                    text = album,
-                                    style = MaterialTheme.typography.titleMedium,
-                                    color = Color.White.copy(alpha = 0.6f),
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
-                            }
-                            Spacer(Modifier.height(20.dp))
-                            TvMixStatus(playerConnection, queueWindows, currentWindowIndex)
-                        }
                     }
+                    Spacer(Modifier.height(20.dp))
+                    TvMixStatus(playerConnection, queueWindows, currentWindowIndex)
                 }
+            }
+            // Lyrics take the free right-hand side instead of squeezing in under the title
+            if (showLyrics) {
+                Spacer(Modifier.width(48.dp))
+                TvLyrics(
+                    playerConnection = playerConnection,
+                    position = position,
+                    duration = duration,
+                    modifier = Modifier.weight(1.5f).fillMaxHeight(),
+                )
             }
         }
 
