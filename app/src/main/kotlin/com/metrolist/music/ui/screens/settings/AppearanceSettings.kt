@@ -104,6 +104,7 @@ import com.metrolist.music.constants.SwipeToRemoveSongKey
 import com.metrolist.music.constants.SwipeToSongKey
 import com.metrolist.music.constants.UseNewMiniPlayerDesignKey
 import com.metrolist.music.constants.UseNewPlayerDesignKey
+import com.metrolist.music.constants.VibeModeEnabledKey
 import com.metrolist.music.ui.component.DefaultDialog
 import com.metrolist.music.ui.component.EnumDialog
 import com.metrolist.music.ui.component.IconButton
@@ -290,6 +291,7 @@ fun AppearanceSettings(
             ListenTogetherInTopBarKey,
             defaultValue = true,
         )
+    val (vibeModeEnabled, onVibeModeEnabledChange) = rememberPreference(VibeModeEnabledKey, defaultValue = true)
 
     val (swipeToSong, onSwipeToSongChange) =
         rememberPreference(
@@ -1739,6 +1741,28 @@ fun AppearanceSettings(
                             )
                         },
                         onClick = { onListenTogetherInTopBarChange(!listenTogetherInTopBar) },
+                    ),
+                    Material3SettingsItem(
+                        icon = painterResource(R.drawable.landscape),
+                        title = { Text(stringResource(R.string.vibe_mode)) },
+                        description = { Text(stringResource(R.string.show_vibe_mode_desc)) },
+                        trailingContent = {
+                            Switch(
+                                checked = vibeModeEnabled,
+                                onCheckedChange = onVibeModeEnabledChange,
+                                thumbContent = {
+                                    Icon(
+                                        painter =
+                                            painterResource(
+                                                id = if (vibeModeEnabled) R.drawable.check else R.drawable.close,
+                                            ),
+                                        contentDescription = null,
+                                        modifier = Modifier.size(SwitchDefaults.IconSize),
+                                    )
+                                },
+                            )
+                        },
+                        onClick = { onVibeModeEnabledChange(!vibeModeEnabled) },
                     ),
                     Material3SettingsItem(
                         icon = painterResource(R.drawable.grid_view),

@@ -86,6 +86,7 @@ import com.metrolist.music.playback.tv.TvRemoteManager
 import com.metrolist.music.playback.tv.TvRemotePlayer
 import com.metrolist.music.constants.ListItemHeight
 import com.metrolist.music.constants.VarispeedKey
+import com.metrolist.music.constants.VibeModeEnabledKey
 import com.metrolist.music.listentogether.ConnectionState
 import com.metrolist.music.listentogether.ListenTogetherEvent
 import com.metrolist.music.models.MediaMetadata
@@ -144,6 +145,7 @@ fun PlayerMenu(
     val tvName = (tvStatus as? TvRemoteManager.Status.Connected)?.tv?.name ?: (tvStatus as? TvRemoteManager.Status.Reconnecting)?.tv?.name
 
     val varispeedMode by rememberPreference(VarispeedKey, defaultValue = false)
+    val vibeModeEnabled by rememberPreference(VibeModeEnabledKey, defaultValue = true)
 
     val librarySong by database.song(mediaMetadata.id).collectAsStateWithLifecycle(initialValue = null)
     val coroutineScope = rememberCoroutineScope()
@@ -734,29 +736,31 @@ fun PlayerMenu(
                                     },
                                 ),
                             )
-                            add(
-                                Material3MenuItemData(
-                                    title = { Text(text = stringResource(R.string.vibe_mode)) },
-                                    description = { Text(text = stringResource(R.string.vibe_mode_desc)) },
-                                    icon = {
-                                        Icon(
-                                            painter = painterResource(R.drawable.landscape),
-                                            contentDescription = null,
-                                            modifier = Modifier.size(24.dp),
-                                        )
-                                    },
-                                    onClick = {
-                                        onDismiss()
-                                        bottomSheetPageState.show {
-                                            VibePickerSheet { id, playMusic ->
-                                                bottomSheetPageState.dismiss()
-                                                playerBottomSheetState.collapseSoft()
-                                                navController.openVibe(id, playMusic)
+                            if (vibeModeEnabled) {
+                                add(
+                                    Material3MenuItemData(
+                                        title = { Text(text = stringResource(R.string.vibe_mode)) },
+                                        description = { Text(text = stringResource(R.string.vibe_mode_desc)) },
+                                        icon = {
+                                            Icon(
+                                                painter = painterResource(R.drawable.landscape),
+                                                contentDescription = null,
+                                                modifier = Modifier.size(24.dp),
+                                            )
+                                        },
+                                        onClick = {
+                                            onDismiss()
+                                            bottomSheetPageState.show {
+                                                VibePickerSheet { id, playMusic ->
+                                                    bottomSheetPageState.dismiss()
+                                                    playerBottomSheetState.collapseSoft()
+                                                    navController.openVibe(id, playMusic)
+                                                }
                                             }
-                                        }
-                                    },
-                                ),
-                            )
+                                        },
+                                    ),
+                                )
+                            }
                             add(
                                 Material3MenuItemData(
                                     title = { Text(text = stringResource(R.string.transitions)) },

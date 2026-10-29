@@ -79,6 +79,7 @@ import com.metrolist.music.LocalPlayerConnection
 import com.metrolist.music.LocalSyncUtils
 import com.metrolist.music.R
 import com.metrolist.music.constants.AutoRadioQueueKey
+import com.metrolist.music.constants.VibeModeEnabledKey
 import com.metrolist.music.db.MusicDatabase
 import com.metrolist.music.playback.DownloadUtil
 import com.metrolist.music.playback.PlayerConnection
@@ -117,6 +118,7 @@ fun TvApp(
     val navController = rememberNavController()
     val tvController = remember(navController) { TvController(navController) }
     val autoRadio by rememberPreference(AutoRadioQueueKey, defaultValue = true)
+    val vibeModeEnabled by rememberPreference(VibeModeEnabledKey, defaultValue = true)
     SideEffect {
         tvController.playerConnection = playerConnection
         tvController.autoRadio = autoRadio
@@ -256,6 +258,7 @@ fun TvApp(
                 playerConnection = activeConnection,
                 onOpenNowPlaying = { tvController.nowPlayingVisible = true },
                 showProfile = !profileList.isNullOrEmpty(),
+                showVibes = vibeModeEnabled,
                 activeProfile = activeProfile?.profile,
                 onOpenProfiles = { profilePickerVisible = true },
                 modifier = Modifier.align(Alignment.CenterStart),
@@ -329,6 +332,7 @@ private fun TvNavRail(
     playerConnection: PlayerConnection?,
     onOpenNowPlaying: () -> Unit,
     showProfile: Boolean,
+    showVibes: Boolean,
     activeProfile: TvProfile?,
     onOpenProfiles: () -> Unit,
     modifier: Modifier = Modifier,
@@ -385,7 +389,7 @@ private fun TvNavRail(
             }
         }
         Spacer(Modifier.weight(1f))
-        TvTab.entries.forEach { tab ->
+        TvTab.entries.filter { showVibes || it != TvTab.VIBES }.forEach { tab ->
             val isSelected = tab == selected
             TvSurface(
                 onClick = { onSelect(tab) },

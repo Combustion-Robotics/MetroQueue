@@ -171,6 +171,7 @@ import com.metrolist.music.constants.SlimNavBarKey
 import com.metrolist.music.constants.StopMusicOnTaskClearKey
 import com.metrolist.music.constants.UpdateNotificationsEnabledKey
 import com.metrolist.music.constants.UseNewMiniPlayerDesignKey
+import com.metrolist.music.constants.VibeModeEnabledKey
 import com.metrolist.music.constants.VideoThumbnailMigrationDoneKey
 import com.metrolist.music.db.MusicDatabase
 import com.metrolist.music.db.entities.SearchHistory
@@ -773,12 +774,12 @@ class MainActivity : FragmentActivity() {
                 val (previousTab, setPreviousTab) = rememberSaveable { mutableStateOf("home") }
 
                 val (listenTogetherInTopBar) = rememberPreference(ListenTogetherInTopBarKey, defaultValue = true)
+                val (vibeModeEnabled) = rememberPreference(VibeModeEnabledKey, defaultValue = true)
                 val navigationItems =
-                    remember(listenTogetherInTopBar) {
-                        if (listenTogetherInTopBar) {
-                            Screens.MainScreens.filter { it != Screens.ListenTogether }
-                        } else {
-                            Screens.MainScreens
+                    remember(listenTogetherInTopBar, vibeModeEnabled) {
+                        Screens.MainScreens.filter {
+                            !(it == Screens.ListenTogether && listenTogetherInTopBar) &&
+                                !(it == Screens.Vibes && !vibeModeEnabled)
                         }
                     }
                 val routeIndexMap = remember(navigationItems) {
@@ -1004,6 +1005,15 @@ class MainActivity : FragmentActivity() {
                     player.addListener(listener)
                     onDispose {
                         player.removeListener(listener)
+                    }
+                }
+
+                LaunchedEffect(vibeModeEnabled, currentRoute) {
+                    if (!vibeModeEnabled && currentRoute == Screens.Vibes.route) {
+                        navController.navigate(Screens.Home.route) {
+                            popUpTo(Screens.Vibes.route) { inclusive = true }
+                            launchSingleTop = true
+                        }
                     }
                 }
 
