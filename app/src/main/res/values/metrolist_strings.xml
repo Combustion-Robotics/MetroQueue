@@ -1184,6 +1184,8 @@
     <string name="vibe_playlist">Playlist</string>
     <string name="vibe_radio_seed">Radio from a search</string>
     <string name="vibe_no_playlists">No playlists in your library yet</string>
+    <string name="vibe_search_playlists">Search YouTube Music playlists</string>
+    <string name="vibe_selected_playlist">Selected playlist</string>
     <string name="vibe_sky_dusk">Dusk</string>
     <string name="vibe_sky_sunset">Sunset</string>
     <string name="vibe_sky_day">Day</string>

@@ -40,6 +40,9 @@ data class VibeMusic(
     val localPlaylistId: String? = null,
     val playlistId: String? = null,
     val seed: String? = null,
+    // Shown in the editor for a playlist picked from a YouTube search.
+    val playlistTitle: String? = null,
+    val playlistThumbnail: String? = null,
 )
 
 const val VIBE_EDIT_ROUTE = "vibe/edit"

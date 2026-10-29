@@ -6,6 +6,7 @@
 package com.metrolist.music.ui.vibe
 
 import androidx.annotation.StringRes
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
@@ -38,6 +39,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -50,15 +52,25 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
+import com.metrolist.innertube.YouTube
+import com.metrolist.innertube.models.PlaylistItem
 import com.metrolist.music.LocalDatabase
 import com.metrolist.music.LocalPlayerAwareWindowInsets
 import com.metrolist.music.R
+import com.metrolist.music.constants.ListThumbnailSize
+import com.metrolist.music.constants.ThumbnailCornerRadius
+import com.metrolist.music.ui.component.ItemThumbnail
+import com.metrolist.music.ui.component.ListItem
+import com.metrolist.music.ui.component.YouTubeListItem
 import com.metrolist.music.ui.vibe.scene.Foreground
 import com.metrolist.music.ui.vibe.scene.Layout
 import com.metrolist.music.ui.vibe.scene.Particle
 import com.metrolist.music.ui.vibe.scene.SceneSpec
 import com.metrolist.music.ui.vibe.scene.Sky
 import com.metrolist.music.ui.vibe.scene.VibeScene
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlin.random.Random
 
@@ -85,10 +97,31 @@ fun VibeEditScreen(navController: NavController, vibeId: String?) {
     var usePlaylist by rememberSaveable { mutableStateOf(source != null && source.music.seed == null) }
     var seed by rememberSaveable { mutableStateOf(source?.music?.seed ?: DEFAULT_RADIO_SEED) }
     var playlistId by rememberSaveable { mutableStateOf(source?.music?.localPlaylistId) }
+    // A playlist picked from a YouTube search; exclusive with the library playlist above.
+    val ytSource = source?.music?.takeIf { it.localPlaylistId == null }
+    var ytPlaylistId by rememberSaveable { mutableStateOf(ytSource?.playlistId) }
+    var ytPlaylistTitle by rememberSaveable { mutableStateOf(ytSource?.playlistTitle) }
+    var ytPlaylistThumbnail by rememberSaveable { mutableStateOf(ytSource?.playlistThumbnail) }
+    var query by rememberSaveable { mutableStateOf("") }
+    // Restarting on each keystroke cancels the pending delay, which debounces the search.
+    val results by produceState(emptyList<PlaylistItem>(), query) {
+        if (query.isBlank()) {
+            value = emptyList()
+            return@produceState
+        }
+        delay(400)
+        value =
+            withContext(Dispatchers.IO) {
+                listOf(YouTube.SearchFilter.FILTER_FEATURED_PLAYLIST, YouTube.SearchFilter.FILTER_COMMUNITY_PLAYLIST)
+                    .flatMap { YouTube.search(query.trim(), it).getOrNull()?.items.orEmpty() }
+                    .filterIsInstance<PlaylistItem>()
+                    .distinctBy { it.id }
+            }
+    }
     var confirmDelete by rememberSaveable { mutableStateOf(false) }
     val playlists by remember(database) { database.playlistsByNameAsc() }.collectAsState(initial = emptyList())
     val playlist = playlists.firstOrNull { it.id == playlistId }
-    val canSave = name.isNotBlank() && if (usePlaylist) playlist != null else seed.isNotBlank()
+    val canSave = name.isNotBlank() && if (usePlaylist) playlist != null || ytPlaylistId != null else seed.isNotBlank()
 
     Scaffold(
         topBar = {
@@ -109,11 +142,11 @@ fun VibeEditScreen(navController: NavController, vibeId: String?) {
                         enabled = canSave,
                         onClick = {
                             val music =
-                                if (usePlaylist) {
+                                when {
+                                    !usePlaylist -> VibeMusic(seed = seed.trim())
                                     // The browse id lets a saved YouTube playlist play before its songs are stored.
-                                    VibeMusic(localPlaylistId = playlist?.id, playlistId = playlist?.playlist?.browseId)
-                                } else {
-                                    VibeMusic(seed = seed.trim())
+                                    playlist != null -> VibeMusic(localPlaylistId = playlist.id, playlistId = playlist.playlist.browseId)
+                                    else -> VibeMusic(playlistId = ytPlaylistId, playlistTitle = ytPlaylistTitle, playlistThumbnail = ytPlaylistThumbnail)
                                 }
                             CustomVibes.save(context, Vibe(id, name.trim(), scene, music))
                             navController.navigateUp()
@@ -174,13 +207,59 @@ fun VibeEditScreen(navController: NavController, vibeId: String?) {
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth(),
                     )
-                } else if (playlists.isEmpty()) {
-                    Text(stringResource(R.string.vibe_no_playlists), style = MaterialTheme.typography.bodyMedium)
                 } else {
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        playlists.forEach {
-                            FilterChip(selected = it.id == playlistId, onClick = { playlistId = it.id }, label = { Text(it.playlist.name) })
+                    if (playlists.isEmpty()) {
+                        Text(stringResource(R.string.vibe_no_playlists), style = MaterialTheme.typography.bodyMedium)
+                    } else {
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            playlists.forEach {
+                                FilterChip(
+                                    selected = it.id == playlistId,
+                                    onClick = {
+                                        playlistId = it.id
+                                        ytPlaylistId = null
+                                    },
+                                    label = { Text(it.playlist.name) },
+                                )
+                            }
                         }
+                    }
+                    if (ytPlaylistId != null) {
+                        ListItem(
+                            title = ytPlaylistTitle.orEmpty(),
+                            subtitle = stringResource(R.string.vibe_selected_playlist),
+                            thumbnailContent = {
+                                ItemThumbnail(
+                                    thumbnailUrl = ytPlaylistThumbnail,
+                                    isActive = false,
+                                    isPlaying = false,
+                                    shape = RoundedCornerShape(ThumbnailCornerRadius),
+                                    modifier = Modifier.size(ListThumbnailSize),
+                                )
+                            },
+                            isActive = true,
+                        )
+                    }
+                    OutlinedTextField(
+                        value = query,
+                        onValueChange = { query = it },
+                        label = { Text(stringResource(R.string.vibe_search_playlists)) },
+                        leadingIcon = { Icon(painterResource(R.drawable.search), contentDescription = null) },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    results.forEach { item ->
+                        YouTubeListItem(
+                            item = item,
+                            isActive = item.id == ytPlaylistId,
+                            modifier =
+                                Modifier.clickable {
+                                    ytPlaylistId = item.id
+                                    ytPlaylistTitle = item.title
+                                    ytPlaylistThumbnail = item.thumbnail
+                                    playlistId = null
+                                },
+                        )
                     }
                 }
                 Spacer(Modifier.windowInsetsBottomHeight(LocalPlayerAwareWindowInsets.current))
