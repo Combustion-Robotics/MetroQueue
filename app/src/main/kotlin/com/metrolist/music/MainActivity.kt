@@ -657,42 +657,38 @@ class MainActivity : FragmentActivity() {
                 return@LaunchedEffect
             }
 
-            playerConnection.service.currentMediaMetadata
-                .distinctUntilChanged { old, new -> old?.id == new?.id }
-                .collectLatest { song ->
-                    if (song?.thumbnailUrl != null) {
-                        val cached = themeColorCache[song.thumbnailUrl]
-                        if (cached != null) {
-                            withFrameNanos { }
-                            themeColor = cached
-                            return@collectLatest
-                        }
-                        withContext(Dispatchers.IO) {
+            // The artwork the UI shows: follows every player swap (Mix crossfade, TV remote), unlike the service's flow
+            playerConnection.mediaMetadata
+                .map { it?.thumbnailUrl }
+                .distinctUntilChanged()
+                .collectLatest { url ->
+                    if (url == null) {
+                        themeColor = selectedThemeColor
+                        return@collectLatest
+                    }
+                    val color =
+                        themeColorCache[url] ?: withContext(Dispatchers.IO) {
                             try {
-                                val result =
-                                    imageLoader.execute(
+                                imageLoader
+                                    .execute(
                                         ImageRequest
                                             .Builder(this@MainActivity)
-                                            .data(song.thumbnailUrl)
+                                            .data(url)
                                             .allowHardware(false)
                                             .memoryCachePolicy(CachePolicy.ENABLED)
                                             .diskCachePolicy(CachePolicy.ENABLED)
                                             .networkCachePolicy(CachePolicy.ENABLED)
                                             .crossfade(false)
                                             .build(),
-                                    )
-                                val extractedColor = result.image?.toBitmap()?.extractThemeColor() ?: selectedThemeColor
-                                themeColorCache[song.thumbnailUrl] = extractedColor
-                                withFrameNanos { }
-                                themeColor = extractedColor
+                                    ).image
+                                    ?.toBitmap()
+                                    ?.extractThemeColor()
                             } catch (e: Exception) {
-                                withFrameNanos { }
-                                themeColor = selectedThemeColor
+                                null
                             }
-                        }
-                    } else {
-                        themeColor = selectedThemeColor
-                    }
+                        }?.also { themeColorCache[url] = it }
+                    withFrameNanos { }
+                    themeColor = color ?: selectedThemeColor
                 }
         }
 
