@@ -174,6 +174,7 @@ object Updater {
                     
                     for (i in 0 until json.length()) {
                         val releaseObj = json.getJSONObject(i)
+                        if (releaseObj.optBoolean("prerelease")) continue
                         releases.add(ReleaseInfo(
                             tagName = releaseObj.getString("tag_name"),
                             versionName = releaseObj.getString("tag_name").removePrefix("v"),
