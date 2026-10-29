@@ -247,7 +247,7 @@ val ListenTogetherSyncVolumeKey = booleanPreferencesKey("listenTogetherSyncVolum
 val ListenTogetherBlockedUsersKey = stringPreferencesKey("listenTogetherBlockedUsers")
 val ListenTogetherInTopBarKey = booleanPreferencesKey("listenTogetherInTopBar")
 
-val VibeModeEnabledKey = booleanPreferencesKey("vibeModeEnabled")
+val VibeModeEnabledKey = booleanPreferencesKey("showVibesTab")
 
 // Session persistence for reconnection
 val ListenTogetherSessionTokenKey = stringPreferencesKey("listenTogetherSessionToken")

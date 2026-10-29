@@ -771,7 +771,7 @@ class MainActivity : FragmentActivity() {
                 val (previousTab, setPreviousTab) = rememberSaveable { mutableStateOf("home") }
 
                 val (listenTogetherInTopBar) = rememberPreference(ListenTogetherInTopBarKey, defaultValue = true)
-                val (vibeModeEnabled) = rememberPreference(VibeModeEnabledKey, defaultValue = true)
+                val (vibeModeEnabled) = rememberPreference(VibeModeEnabledKey, defaultValue = false)
                 val navigationItems =
                     remember(listenTogetherInTopBar, vibeModeEnabled) {
                         Screens.MainScreens.filter {

@@ -1169,7 +1169,7 @@
     <string name="vibes">Vibes</string>
     <string name="vibe_mode">Vibe mode</string>
     <string name="vibe_mode_desc">A cozy full-screen scene for your music</string>
-    <string name="show_vibe_mode_desc">Show the Vibes tab and Vibe mode in the player menu</string>
+    <string name="show_vibe_mode_desc">Show the Vibes tab in the bottom bar</string>
     <string name="create_vibe">Create vibe</string>
     <string name="edit_vibe">Edit vibe</string>
     <string name="delete_vibe_confirm">Delete \"%1$s\"?</string>

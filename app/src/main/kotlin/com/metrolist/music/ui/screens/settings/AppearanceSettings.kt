@@ -291,7 +291,7 @@ fun AppearanceSettings(
             ListenTogetherInTopBarKey,
             defaultValue = true,
         )
-    val (vibeModeEnabled, onVibeModeEnabledChange) = rememberPreference(VibeModeEnabledKey, defaultValue = true)
+    val (vibeModeEnabled, onVibeModeEnabledChange) = rememberPreference(VibeModeEnabledKey, defaultValue = false)
 
     val (swipeToSong, onSwipeToSongChange) =
         rememberPreference(
