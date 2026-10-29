@@ -98,13 +98,13 @@ fun VibePlayerScreen(vibeId: String, playMusic: Boolean) {
         VibeScene(vibe.scene, Modifier.fillMaxSize())
         val landscape = maxWidth > maxHeight
         VibeSongBar(
-            vertical = landscape,
+            vertical = false,
             isPlaying = isPlaying,
             modifier = Modifier
                 .windowInsetsPadding(WindowInsets.safeDrawing)
-                .padding(20.dp)
-                .align(if (landscape) Alignment.CenterStart else Alignment.BottomCenter)
-                .then(if (landscape) Modifier.width(168.dp) else Modifier.widthIn(max = 480.dp).fillMaxWidth()),
+                .padding(12.dp)
+                .align(if (landscape) Alignment.BottomStart else Alignment.BottomCenter)
+                .widthIn(max = if (landscape) 300.dp else 360.dp),
         )
     }
 }
@@ -124,10 +124,10 @@ internal fun VibeSongBar(
     val isGuest = listenTogetherManager?.let { it.isInRoom && !it.isHost } ?: false
 
     val card = modifier
-        .shadow(16.dp, BarShape)
+        .shadow(if (vertical) 16.dp else 6.dp, BarShape)
         .background(BarBackground, BarShape)
-        .border(2.dp, BarBorder, BarShape)
-        .padding(10.dp)
+        .border(if (vertical) 2.dp else 1.dp, BarBorder, BarShape)
+        .padding(if (vertical) 10.dp else 6.dp)
 
     val cover = @Composable { coverModifier: Modifier ->
         AsyncImage(
@@ -143,14 +143,14 @@ internal fun VibeSongBar(
                 text = metadata?.title.orEmpty(),
                 fontFamily = FontFamily.Monospace,
                 fontWeight = FontWeight.Bold,
-                fontSize = 14.sp,
+                fontSize = if (vertical) 14.sp else 12.sp,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
                 text = metadata?.artists?.joinToString { it.name }.orEmpty(),
                 fontFamily = FontFamily.Monospace,
-                fontSize = 12.sp,
+                fontSize = if (vertical) 12.sp else 11.sp,
                 color = Color.White.copy(alpha = 0.7f),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -158,14 +158,23 @@ internal fun VibeSongBar(
         }
     }
     val controls: @Composable () -> Unit = customControls ?: @Composable {
-        IconButton(onClick = playerConnection::togglePlayPause) {
+        IconButton(onClick = playerConnection::togglePlayPause, modifier = Modifier.size(36.dp)) {
             Icon(
                 painter = painterResource(if (isPlaying) R.drawable.pause else R.drawable.play),
                 contentDescription = stringResource(if (isPlaying) R.string.pause else R.string.play),
+                modifier = Modifier.size(20.dp),
             )
         }
-        IconButton(onClick = playerConnection::seekToNext, enabled = canSkipNext && !isGuest) {
-            Icon(painterResource(R.drawable.skip_next), contentDescription = stringResource(R.string.next))
+        IconButton(
+            onClick = playerConnection::seekToNext,
+            enabled = canSkipNext && !isGuest,
+            modifier = Modifier.size(36.dp),
+        ) {
+            Icon(
+                painterResource(R.drawable.skip_next),
+                contentDescription = stringResource(R.string.next),
+                modifier = Modifier.size(20.dp),
+            )
         }
     }
 
@@ -179,9 +188,10 @@ internal fun VibeSongBar(
             }
         } else {
             Row(card, verticalAlignment = Alignment.CenterVertically) {
-                cover(Modifier.size(48.dp))
-                Spacer(Modifier.width(12.dp))
-                texts(Modifier.weight(1f))
+                cover(Modifier.size(40.dp))
+                Spacer(Modifier.width(8.dp))
+                texts(Modifier.weight(1f, fill = false))
+                Spacer(Modifier.width(4.dp))
                 controls()
             }
         }
