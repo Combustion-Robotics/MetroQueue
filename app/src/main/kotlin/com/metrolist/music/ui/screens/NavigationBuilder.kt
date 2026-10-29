@@ -83,7 +83,7 @@ fun NavGraphBuilder.navigationBuilder(
     }
 
     composable(Screens.Search.route) { backStackEntry ->
-        val pureBlackEnabled by rememberPreference(PureBlackKey, defaultValue = false)
+        val pureBlackEnabled by rememberPreference(PureBlackKey, defaultValue = true)
         val darkTheme by rememberEnumPreference(DarkModeKey, defaultValue = DarkMode.AUTO)
         val isSystemInDarkTheme = isSystemInDarkTheme()
         val useDarkTheme =

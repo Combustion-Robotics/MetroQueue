@@ -104,7 +104,7 @@ fun TvSettingsScreen(accountViewModel: AccountSettingsViewModel = hiltViewModel(
     var forgetting by remember { mutableStateOf<PairedDevice?>(null) }
     val dateFormat = remember { DateFormat.getDateInstance(DateFormat.MEDIUM) }
     var dynamicTheme by rememberPreference(DynamicThemeKey, true)
-    var pureBlack by rememberPreference(PureBlackKey, false)
+    var pureBlack by rememberPreference(PureBlackKey, true)
 
     LazyColumn(
         contentPadding = PaddingValues(start = TvDimens.SafeHorizontal / 2, end = TvDimens.SafeHorizontal, bottom = TvDimens.SafeVertical * 2),

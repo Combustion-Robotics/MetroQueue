@@ -165,7 +165,7 @@ fun AppearanceSettings(
     val (useNewPlayerDesign, onUseNewPlayerDesignChange) =
         rememberPreference(
             UseNewPlayerDesignKey,
-            defaultValue = true,
+            defaultValue = false,
         )
     val (miniPlayerBackground, onMiniPlayerBackgroundChange) =
         rememberEnumPreference(
