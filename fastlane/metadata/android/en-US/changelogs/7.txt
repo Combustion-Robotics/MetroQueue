@@ -1,0 +1,22 @@
+MetroQueue 1.4.0: Vibe mode
+
+Vibe mode
+- Full-screen, animated pixel-art scenes with your music: Winter dusk, Rainy city night, Starry lake and Spring blossoms
+- Falling snow and petals, rain, fireflies, twinkling and shooting stars, drifting clouds, lightning, chimney smoke
+- Each vibe plays its own endless radio, or keep what you're already listening to
+- Create your own vibes: pick sky, scene, foreground and effects, and play a library playlist, a YouTube Music playlist (searchable) or an endless radio
+- Small song bar with play/pause and next, adapting to portrait and landscape
+- Open it from Now Playing ⋮ > Vibe mode; the Vibes tab can be turned on in Appearance
+- Also on TV, from the side menu
+
+TV
+- Lyrics now use the free space on the right of Now Playing
+
+Fixes
+- The accent colour now follows every song change (also after crossfades)
+- The app no longer shows an update when you're already on the latest version
+- Dev pre-releases no longer appear in the in-app changelog
+
+Defaults (only if you never changed them)
+- Pure black (AMOLED) theme on
+- Classic player design
