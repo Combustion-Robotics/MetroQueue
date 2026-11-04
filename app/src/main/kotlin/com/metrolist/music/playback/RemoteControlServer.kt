@@ -44,6 +44,9 @@ import com.metrolist.music.playback.tv.QueueSnapshot
 import com.metrolist.music.playback.tv.RemoteItemsRequest
 import com.metrolist.music.playback.tv.RemoteState
 import com.metrolist.music.playback.tv.RemoteTrack
+import com.metrolist.music.playback.tv.SYNC_VERSION
+import com.metrolist.music.playback.tv.SyncState
+import com.metrolist.music.playback.tv.TvDataSync
 import com.metrolist.music.playback.tv.TvInfo
 import com.metrolist.music.playback.tv.TvPairing
 import com.metrolist.music.playback.tv.TvProfileStore
@@ -86,6 +89,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import java.io.InputStream
 import java.net.Inet4Address
 import java.net.Inet6Address
 import java.net.InetAddress
@@ -106,6 +110,7 @@ class RemoteControlServer(
     private val tvId: String? = null,
     private val tvName: String? = null,
     private val profiles: TvProfileStore? = null,
+    private val dataSync: TvDataSync? = null,
 ) {
     private val json = Json {
         encodeDefaults = true
@@ -140,7 +145,7 @@ class RemoteControlServer(
                 }
                 get("/api/info") {
                     if (!call.fromLan() || tvId == null) return@get call.respond(HttpStatusCode.NotFound)
-                    call.respondJson(json.encodeToString(TvInfo(id = tvId, name = tvName.orEmpty(), paired = call.hasPairedToken())))
+                    call.respondJson(json.encodeToString(TvInfo(id = tvId, name = tvName.orEmpty(), paired = call.hasPairedToken(), sync = if (dataSync != null) SYNC_VERSION else 0)))
                 }
                 post("/api/pair/start") {
                     val pairing = pairing
@@ -225,18 +230,22 @@ class RemoteControlServer(
                     val profiles = profiles ?: return@post call.respond(HttpStatusCode.NotFound)
                     val device = if (call.fromLan()) call.pairedDevice() else null
                     if (device == null) return@post call.respond(HttpStatusCode.Forbidden)
-                    val gzipped = call.request.headers[HttpHeaders.ContentEncoding].equals("gzip", ignoreCase = true)
-                    val channel = call.receiveChannel()
-                    val library =
-                        withContext(Dispatchers.IO) {
-                            runCatching {
-                                LimitedInputStream(channel.toInputStream(), MAX_PROFILE_UPLOAD_BYTES).use { raw ->
-                                    val body = if (gzipped) LimitedInputStream(GZIPInputStream(raw), MAX_PROFILE_JSON_BYTES) else raw
-                                    TvProfileStore.decode(body.buffered())
-                                }
-                            }.getOrNull()
-                        } ?: return@post call.respond(HttpStatusCode.BadRequest)
+                    val library = call.receiveUpload(TvProfileStore::decode) ?: return@post call.respond(HttpStatusCode.BadRequest)
                     profiles.save(device.id, device.name, library.capped())
+                    call.respond(HttpStatusCode.NoContent)
+                }
+                // Two-way sync of MetroQueue data with a paired phone (see TvDataSync)
+                get("/api/sync") {
+                    val dataSync = dataSync ?: return@get call.respond(HttpStatusCode.NotFound)
+                    if (!call.fromLan() || call.pairedDevice() == null) return@get call.respond(HttpStatusCode.Forbidden)
+                    val since = call.request.queryParameters["since"]?.toLongOrNull() ?: 0L
+                    call.respondJson(TvDataSync.json.encodeToString(SyncState.serializer(), dataSync.localState(since)))
+                }
+                post("/api/sync") {
+                    val dataSync = dataSync ?: return@post call.respond(HttpStatusCode.NotFound)
+                    if (!call.fromLan() || call.pairedDevice() == null) return@post call.respond(HttpStatusCode.Forbidden)
+                    val state = call.receiveUpload(TvDataSync::decode) ?: return@post call.respond(HttpStatusCode.BadRequest)
+                    dataSync.apply(state, remoteWinsTies = false)
                     call.respond(HttpStatusCode.NoContent)
                 }
                 webSocket("/api/ws") {
@@ -323,6 +332,20 @@ class RemoteControlServer(
         if (hasAccess()) return true
         respond(HttpStatusCode.Forbidden)
         return false
+    }
+
+    /** The (optionally gzipped) request body read by [decode], or null if too large or unreadable. */
+    private suspend fun <T> ApplicationCall.receiveUpload(decode: (InputStream) -> T): T? {
+        val gzipped = request.headers[HttpHeaders.ContentEncoding].equals("gzip", ignoreCase = true)
+        val channel = receiveChannel()
+        return withContext(Dispatchers.IO) {
+            runCatching {
+                LimitedInputStream(channel.toInputStream(), MAX_UPLOAD_BYTES).use { raw ->
+                    val body = if (gzipped) LimitedInputStream(GZIPInputStream(raw), MAX_UPLOAD_JSON_BYTES) else raw
+                    decode(body.buffered())
+                }
+            }.getOrNull()
+        }
     }
 
     private suspend fun ApplicationCall.respondJson(body: String) = respondText(body, ContentType.Application.Json)
@@ -509,8 +532,8 @@ class RemoteControlServer(
 
     companion object {
         const val PORT = 8642
-        private const val MAX_PROFILE_UPLOAD_BYTES = 16L * 1024 * 1024
-        private const val MAX_PROFILE_JSON_BYTES = 64L * 1024 * 1024
+        private const val MAX_UPLOAD_BYTES = 16L * 1024 * 1024
+        private const val MAX_UPLOAD_JSON_BYTES = 64L * 1024 * 1024
         private const val PUSH_COALESCE_MS = 100L
         private val PUSHED_EVENTS =
             intArrayOf(

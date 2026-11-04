@@ -6,6 +6,7 @@
 package com.metrolist.music.ui.vibe
 
 import android.content.Context
+import com.metrolist.music.playback.tv.markSyncDeleted
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -58,8 +59,9 @@ object CustomVibes {
 
     fun isCustom(id: String) = id.startsWith(ID_PREFIX)
 
-    fun save(context: Context, vibe: Vibe) {
+    fun save(context: Context, edited: Vibe) {
         initialize(context)
+        val vibe = edited.copy(updatedAt = System.currentTimeMillis())
         _vibes.update { list ->
             if (list.any { it.id == vibe.id }) list.map { if (it.id == vibe.id) vibe else it } else list + vibe
         }
@@ -69,7 +71,22 @@ object CustomVibes {
     fun delete(context: Context, id: String) {
         initialize(context)
         _vibes.update { list -> list.filterNot { it.id == id } }
-        io.launch { write() }
+        io.launch {
+            write()
+            context.applicationContext.markSyncDeleted(vibe = id)
+        }
+    }
+
+    /** Replaces the vibes with [transform] of them (by id), e.g. merged with another device's. */
+    fun update(context: Context, transform: (Map<String, Vibe>) -> Map<String, Vibe>) {
+        initialize(context)
+        val before = _vibes.value
+        _vibes.update { list ->
+            val current = list.associateBy { it.id }
+            val updated = transform(current)
+            if (updated == current) list else updated.values.toList()
+        }
+        if (_vibes.value !== before) io.launch { write() }
     }
 
     /** The stored vibes as the JSON a backup holds. */

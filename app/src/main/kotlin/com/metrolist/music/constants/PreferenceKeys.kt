@@ -161,6 +161,12 @@ val PairedTvsKey = stringPreferencesKey("pairedTvs")
 val TvActiveProfileKey = stringPreferencesKey("tvActiveProfile")
 val TvLibrarySyncedKey = stringPreferencesKey("tvLibrarySynced")
 val TvAutoSyncLibraryKey = booleanPreferencesKey("tvAutoSyncLibrary")
+val SyncDataTimesKey = stringPreferencesKey("syncDataTimes")
+val SyncSettingsKey = stringPreferencesKey("syncSettings")
+val SyncTombstonesKey = stringPreferencesKey("syncTombstones")
+
+/** Data sync when connecting to a receiver of [kind]; on by default for desktops only. */
+fun syncDataAutoKey(kind: String) = booleanPreferencesKey("syncDataAuto_$kind")
 val CrossfadeEnabledKey = booleanPreferencesKey("crossfadeEnabled")
 val CrossfadeDurationKey = floatPreferencesKey("crossfadeDurationFloat")
 val CrossfadeGaplessKey = booleanPreferencesKey("crossfadeGapless")

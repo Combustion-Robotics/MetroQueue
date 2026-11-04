@@ -7,6 +7,7 @@ package com.metrolist.music.playback.mix
 
 import android.content.Context
 import com.metrolist.music.di.ApplicationScope
+import com.metrolist.music.playback.tv.markSyncDeleted
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -27,7 +28,7 @@ import javax.inject.Singleton
  */
 @Singleton
 class CustomTransitionRepository @Inject constructor(
-    @ApplicationContext context: Context,
+    @ApplicationContext private val context: Context,
     @ApplicationScope private val scope: CoroutineScope,
 ) {
     private val store = CustomTransitionStore(File(context.filesDir, CustomTransitionStore.FILE_NAME))
@@ -51,7 +52,7 @@ class CustomTransitionRepository @Inject constructor(
             val map = LinkedHashMap(ensureLoaded())
             // Re-inserted, so the most recently edited are kept when the cap is reached
             map.remove(transition.key)
-            map[transition.key] = transition
+            map[transition.key] = transition.copy(updatedAt = System.currentTimeMillis())
             val iterator = map.keys.iterator()
             while (map.size > CustomTransitionStore.MAX_TRANSITIONS && iterator.hasNext()) {
                 iterator.next()
@@ -67,7 +68,28 @@ class CustomTransitionRepository @Inject constructor(
         scope.launch(io) {
             val key = CustomTransition.pairKey(fromId, toId)
             val current = ensureLoaded()
-            if (key in current) publish(LinkedHashMap(current).apply { remove(key) })
+            if (key in current) {
+                publish(LinkedHashMap(current).apply { remove(key) })
+                context.markSyncDeleted(transition = key)
+            }
+        }
+
+    suspend fun all(): Map<String, CustomTransition> = withContext(io) { ensureLoaded() }
+
+    /** Replaces the transitions with [transform] of them, e.g. merged with another device's. */
+    suspend fun update(transform: (Map<String, CustomTransition>) -> Map<String, CustomTransition>) =
+        withContext(io) {
+            val current = ensureLoaded()
+            val updated = transform(current)
+            if (updated != current) {
+                // Least recently changed first, so those are the ones dropped at the cap
+                publish(
+                    updated.values
+                        .sortedBy { it.updatedAt }
+                        .takeLast(CustomTransitionStore.MAX_TRANSITIONS)
+                        .associateByTo(LinkedHashMap()) { it.key },
+                )
+            }
         }
 
     /** The stored transitions as the JSON a backup holds. */

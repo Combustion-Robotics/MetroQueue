@@ -72,6 +72,8 @@ data class TvInfo(
     val version: Int = TV_PROTOCOL_VERSION,
     val paired: Boolean = false,
     val kind: String = DEVICE_KIND_TV,
+    /** The [SYNC_VERSION] served at `/api/sync`, 0 for none. */
+    val sync: Int = 0,
 )
 
 @Serializable
@@ -139,6 +141,7 @@ data class PairedTv(
     val host: String,
     val port: Int,
     val kind: String = DEVICE_KIND_TV,
+    val sync: Int = 0,
 )
 
 fun MediaMetadata.toRemoteTrack(

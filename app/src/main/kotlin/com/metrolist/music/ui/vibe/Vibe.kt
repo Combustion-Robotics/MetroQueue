@@ -32,6 +32,8 @@ data class Vibe(
     val name: String,
     val scene: SceneSpec,
     val music: VibeMusic,
+    /** When it was last changed (epoch ms), for sync; 0 if before that was recorded. */
+    val updatedAt: Long = 0L,
 )
 
 /** First set source wins: a local playlist with songs, a YouTube playlist, else an endless radio from [seed]. */

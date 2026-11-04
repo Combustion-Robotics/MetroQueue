@@ -10,6 +10,8 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.util.UnstableApi
 import com.metrolist.music.R
 import com.metrolist.music.constants.PairedTvsKey
+import com.metrolist.music.constants.SyncDataTimesKey
+import com.metrolist.music.constants.syncDataAutoKey
 import com.metrolist.music.constants.TvAutoSyncLibraryKey
 import com.metrolist.music.constants.TvLibrarySyncedKey
 import com.metrolist.music.extensions.metadata
@@ -34,6 +36,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.Serializable
 import okhttp3.WebSocket
 import timber.log.Timber
 
@@ -65,6 +68,13 @@ class TvRemoteManager(
 
     class NotPairedException : IllegalStateException("Not paired")
 
+    /** A data sync's end: the receiver's clock ([remote]) and this phone's ([local]), epoch ms. */
+    @Serializable
+    data class SyncMark(
+        val remote: Long,
+        val local: Long,
+    )
+
     private val json = Json { ignoreUnknownKeys = true }
 
     val discovery = TvDiscovery(service)
@@ -95,6 +105,16 @@ class TvRemoteManager(
 
     private val _syncingLibrary = MutableStateFlow(false)
     val syncingLibrary: StateFlow<Boolean> = _syncingLibrary.asStateFlow()
+
+    /** Where the last data sync with each receiver left off, by receiver id. */
+    val dataSyncMarks: StateFlow<Map<String, SyncMark>> =
+        service.dataStore.data
+            .map { prefs -> decodeMarks(prefs[SyncDataTimesKey]) }
+            .distinctUntilChanged()
+            .stateIn(scope, SharingStarted.Lazily, emptyMap())
+
+    private val _syncingData = MutableStateFlow(false)
+    val syncingData: StateFlow<Boolean> = _syncingData.asStateFlow()
 
     private var tv: PairedTv? = null
     private var socket: WebSocket? = null
@@ -156,7 +176,7 @@ class TvRemoteManager(
             }
             val remotePlayer = TvRemotePlayer(client, scope)
             remotePlayer.refresh()
-            val connected = target.copy(name = info.name.ifBlank { target.name }, kind = info.kind)
+            val connected = target.copy(name = info.name.ifBlank { target.name }, kind = info.kind, sync = info.sync)
             tv = connected
             service.setSessionPlayer(remotePlayer)
             _player.value = remotePlayer
@@ -166,6 +186,11 @@ class TvRemoteManager(
             savePaired(connected)
             if (connected.kind == DEVICE_KIND_TV && service.dataStore.data.first()[TvAutoSyncLibraryKey] == true) {
                 scope.launch { runCatching { syncLibrary(connected) }.onFailure { Timber.tag(TAG).w(it, "Library sync failed") } }
+            }
+            if (connected.sync >= SYNC_VERSION &&
+                service.dataStore.data.first()[syncDataAutoKey(connected.kind)] ?: (connected.kind == DEVICE_KIND_DESKTOP)
+            ) {
+                scope.launch { runCatching { syncData(connected) }.onFailure { Timber.tag(TAG).w(it, "Data sync failed") } }
             }
         } catch (e: Exception) {
             if (_player.value == null) _status.value = Status.Idle
@@ -202,6 +227,27 @@ class TvRemoteManager(
             }
         } finally {
             _syncingLibrary.value = false
+        }
+    }
+
+    /**
+     * Two-way sync of history, custom transitions and vibes and the shared settings with [target]:
+     * fetch its changes, merge them here, send the merged result back (see SYNC.md).
+     */
+    suspend fun syncData(target: PairedTv) {
+        if (!_syncingData.compareAndSet(expect = false, update = true)) return
+        try {
+            val client = TvRemoteClient(target.host, target.port, target.token)
+            val mark = decodeMarks(service.dataStore.data.first()[SyncDataTimesKey])[target.id]
+            val startedAt = System.currentTimeMillis()
+            val remote = client.syncState(since = mark?.remote?.minus(SYNC_OVERLAP_MS)?.coerceAtLeast(0L) ?: 0L)
+            service.dataSync.apply(remote, remoteWinsTies = true)
+            client.postSync(service.dataSync.localState(historySince = mark?.local?.minus(SYNC_OVERLAP_MS)?.coerceAtLeast(0L) ?: 0L))
+            service.safeDataStoreEdit { prefs ->
+                prefs[SyncDataTimesKey] = json.encodeToString(decodeMarks(prefs[SyncDataTimesKey]) + (target.id to SyncMark(remote.now, startedAt)))
+            }
+        } finally {
+            _syncingData.value = false
         }
     }
 
@@ -328,6 +374,9 @@ class TvRemoteManager(
         }
     }
 
+    private fun decodeMarks(raw: String?): Map<String, SyncMark> =
+        raw?.let { runCatching { json.decodeFromString<Map<String, SyncMark>>(it) }.getOrNull() }.orEmpty()
+
     private fun decode(raw: String?): List<PairedTv> =
         raw?.let { runCatching { json.decodeFromString<List<PairedTv>>(it) }.getOrNull() }.orEmpty()
 
@@ -336,5 +385,8 @@ class TvRemoteManager(
     private companion object {
         const val TAG = "TvRemoteManager"
         val RECONNECT_DELAYS_MS = listOf(1_000L, 2_000L, 3_000L, 5_000L, 8_000L, 10_000L)
+
+        // Re-sends a little of what was already synced, in case the two clocks differ
+        const val SYNC_OVERLAP_MS = 5 * 60_000L
     }
 }

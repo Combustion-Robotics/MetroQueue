@@ -29,6 +29,8 @@ data class CustomTransition(
     val outgoingEndMs: Long? = null,
     val incomingStartMs: Long? = null,
     val tempoMatch: Boolean = true,
+    /** When it was last changed (epoch ms), for sync; 0 if before that was recorded. */
+    val updatedAt: Long = 0L,
 ) {
     val key: String get() = pairKey(fromId, toId)
 

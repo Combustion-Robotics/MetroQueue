@@ -242,6 +242,7 @@ import com.metrolist.music.playback.queues.filterVideoSongs
 import com.metrolist.music.playback.queues.TransferredQueue
 import com.metrolist.music.playback.tv.QueueSnapshot
 import com.metrolist.music.playback.tv.TvAdvertiser
+import com.metrolist.music.playback.tv.TvDataSync
 import com.metrolist.music.playback.tv.TvProfileStore
 import com.metrolist.music.playback.tv.toMediaMetadata
 import com.metrolist.music.playback.tv.toRemoteTrack
@@ -652,6 +653,9 @@ class MusicService :
 
     /** Phone side of "Play on TV". */
     val tvRemote by tvRemoteLazy
+
+    /** Sync of MetroQueue data with paired devices, both as phone and as TV. */
+    val dataSync by lazy { TvDataSync(this, database, customTransitions) }
 
     // The TV player standing in for [player] in the media session while connected to a TV
     private var sessionRemotePlayer: Player? = null
@@ -1375,6 +1379,7 @@ class MusicService :
         scope.launch {
             dataStore.data.map { it[NewRadioAfterAddedSongsKey] ?: false }.distinctUntilChanged().collect { cachedNewRadioAfterAddedSongs = it }
         }
+        dataSync.trackSettings(scope)
         scope.launch {
             dataStore.data
                 .map { (it[RemoteControlEnabledKey] == true) to it[RemoteControlKeyKey].orEmpty() }
@@ -1390,7 +1395,15 @@ class MusicService :
                         remoteControlServer =
                             if (browserKey != null || pairing != null) {
                                 runCatching {
-                                    RemoteControlServer(this@MusicService, browserKey, pairing, tvId, tvName, if (isTv) tvProfiles.get() else null).apply { start() }
+                                    RemoteControlServer(
+                                        this@MusicService,
+                                        browserKey,
+                                        pairing,
+                                        tvId,
+                                        tvName,
+                                        if (isTv) tvProfiles.get() else null,
+                                        if (isTv) dataSync else null,
+                                    ).apply { start() }
                                 }.onFailure { Timber.tag(TAG).e(it, "Remote control server failed to start") }
                                     .getOrNull()
                             } else {

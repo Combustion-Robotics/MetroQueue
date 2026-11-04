@@ -1516,6 +1516,13 @@ interface DatabaseDao {
     fun eventCount(): Flow<Int>
 
     @Transaction
+    @Query("SELECT * FROM event WHERE timestamp >= :from ORDER BY timestamp DESC LIMIT :limit")
+    fun eventsSince(from: LocalDateTime, limit: Int): List<EventWithSong>
+
+    @Query("SELECT * FROM event WHERE timestamp >= :from")
+    fun eventsFrom(from: LocalDateTime): List<Event>
+
+    @Transaction
     @Query("DELETE FROM event")
     fun clearListenHistory()
 

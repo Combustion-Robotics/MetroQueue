@@ -1161,6 +1161,10 @@
     <string name="tv_auto_sync_library">Sync automatically when connecting</string>
     <string name="tv_library_synced">Library synced to %1$s</string>
     <string name="tv_sync_failed">Couldn\'t sync the library to the TV</string>
+    <string name="sync_data">Sync MetroQueue data</string>
+    <string name="sync_data_desc">History, custom transitions, vibes and your Mix, lyrics and theme settings, both ways</string>
+    <string name="sync_data_done">Synced with %1$s</string>
+    <string name="sync_data_failed">Couldn\'t sync with the device</string>
     <string name="lyrics_effects">Lyrics effects</string>
     <string name="lyrics_effects_full">Full</string>
     <string name="lyrics_effects_subtle">Subtle</string>

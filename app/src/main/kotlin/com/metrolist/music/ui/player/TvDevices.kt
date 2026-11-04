@@ -59,10 +59,12 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.metrolist.music.LocalPlayerConnection
 import com.metrolist.music.R
 import com.metrolist.music.constants.TvAutoSyncLibraryKey
+import com.metrolist.music.constants.syncDataAutoKey
 import com.metrolist.music.playback.RemoteControlServer
 import com.metrolist.music.playback.tv.DEVICE_KIND_DESKTOP
 import com.metrolist.music.playback.tv.DEVICE_KIND_TV
 import com.metrolist.music.playback.tv.PairedTv
+import com.metrolist.music.playback.tv.SYNC_VERSION
 import com.metrolist.music.playback.tv.TvRemoteClient
 import com.metrolist.music.playback.tv.TvRemoteManager
 import com.metrolist.music.utils.rememberPreference
@@ -160,6 +162,10 @@ private fun TvDevicePicker(
     val syncTimes by manager.librarySyncTimes.collectAsStateWithLifecycle()
     val syncing by manager.syncingLibrary.collectAsStateWithLifecycle()
     var autoSync by rememberPreference(TvAutoSyncLibraryKey, defaultValue = false)
+    val dataMarks by manager.dataSyncMarks.collectAsStateWithLifecycle()
+    val syncingData by manager.syncingData.collectAsStateWithLifecycle()
+    var autoSyncDesktop by rememberPreference(syncDataAutoKey(DEVICE_KIND_DESKTOP), defaultValue = true)
+    var autoSyncTv by rememberPreference(syncDataAutoKey(DEVICE_KIND_TV), defaultValue = false)
     val context = LocalContext.current
     val idle = status is TvRemoteManager.Status.Idle
 
@@ -275,27 +281,54 @@ private fun TvDevicePicker(
                             },
                         kind = tv.kind,
                         busy = busy,
-                        // Library profiles are a TV feature
-                        sync =
-                            (current as? TvRemoteManager.Status.Connected)?.takeIf { tv.kind == DEVICE_KIND_TV }?.let {
-                                LibrarySyncState(
-                                    lastSynced = syncTimes[tv.id],
-                                    syncing = syncing,
-                                    autoSync = autoSync,
-                                    onAutoSyncChange = { autoSync = it },
-                                    onSync = {
-                                        error = null
-                                        coroutineScope.launch {
-                                            try {
-                                                manager.syncLibrary(tv)
-                                                Toast.makeText(context, context.getString(R.string.tv_library_synced, tv.name), Toast.LENGTH_SHORT).show()
-                                            } catch (e: CancellationException) {
-                                                throw e
-                                            } catch (e: Exception) {
-                                                error = R.string.tv_sync_failed
+                        syncs =
+                            if (current !is TvRemoteManager.Status.Connected) {
+                                emptyList()
+                            } else {
+                                listOfNotNull(
+                                    // Library profiles are a TV feature
+                                    SyncSection(
+                                        title = stringResource(R.string.tv_sync_library),
+                                        description = stringResource(R.string.tv_sync_library_desc),
+                                        lastSynced = syncTimes[tv.id],
+                                        syncing = syncing,
+                                        autoSync = autoSync,
+                                        onAutoSyncChange = { autoSync = it },
+                                        onSync = {
+                                            error = null
+                                            coroutineScope.launch {
+                                                try {
+                                                    manager.syncLibrary(tv)
+                                                    Toast.makeText(context, context.getString(R.string.tv_library_synced, tv.name), Toast.LENGTH_SHORT).show()
+                                                } catch (e: CancellationException) {
+                                                    throw e
+                                                } catch (e: Exception) {
+                                                    error = R.string.tv_sync_failed
+                                                }
                                             }
-                                        }
-                                    },
+                                        },
+                                    ).takeIf { tv.kind == DEVICE_KIND_TV },
+                                    SyncSection(
+                                        title = stringResource(R.string.sync_data),
+                                        description = stringResource(R.string.sync_data_desc),
+                                        lastSynced = dataMarks[tv.id]?.local,
+                                        syncing = syncingData,
+                                        autoSync = if (tv.kind == DEVICE_KIND_DESKTOP) autoSyncDesktop else autoSyncTv,
+                                        onAutoSyncChange = { if (tv.kind == DEVICE_KIND_DESKTOP) autoSyncDesktop = it else autoSyncTv = it },
+                                        onSync = {
+                                            error = null
+                                            coroutineScope.launch {
+                                                try {
+                                                    manager.syncData(tv)
+                                                    Toast.makeText(context, context.getString(R.string.sync_data_done, tv.name), Toast.LENGTH_SHORT).show()
+                                                } catch (e: CancellationException) {
+                                                    throw e
+                                                } catch (e: Exception) {
+                                                    error = R.string.sync_data_failed
+                                                }
+                                            }
+                                        },
+                                    ).takeIf { tv.sync >= SYNC_VERSION },
                                 )
                             },
                         onPlayHere = {
@@ -448,7 +481,9 @@ private fun TvEntryRow(
     )
 }
 
-private class LibrarySyncState(
+private class SyncSection(
+    val title: String,
+    val description: String,
     val lastSynced: Long?,
     val syncing: Boolean,
     val autoSync: Boolean,
@@ -461,7 +496,7 @@ private fun ConnectedCard(
     title: String,
     kind: String,
     busy: Boolean,
-    sync: LibrarySyncState?,
+    syncs: List<SyncSection>,
     onPlayHere: () -> Unit,
     onDisconnect: () -> Unit,
 ) {
@@ -487,9 +522,9 @@ private fun ConnectedCard(
                     Text(stringResource(R.string.disconnect))
                 }
             }
-            if (sync != null) {
+            syncs.forEach { sync ->
                 Spacer(Modifier.height(20.dp))
-                Text(text = stringResource(R.string.tv_sync_library), style = MaterialTheme.typography.titleSmall)
+                Text(text = sync.title, style = MaterialTheme.typography.titleSmall)
                 Text(
                     text =
                         sync.lastSynced?.let {
@@ -497,7 +532,7 @@ private fun ConnectedCard(
                                 R.string.tv_last_synced,
                                 DateUtils.getRelativeTimeSpanString(it, System.currentTimeMillis(), DateUtils.MINUTE_IN_MILLIS).toString(),
                             )
-                        } ?: stringResource(R.string.tv_sync_library_desc),
+                        } ?: sync.description,
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.8f),
                 )

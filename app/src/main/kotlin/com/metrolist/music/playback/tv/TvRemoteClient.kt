@@ -16,7 +16,9 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
+import java.io.ByteArrayOutputStream
 import java.io.IOException
+import java.util.zip.GZIPOutputStream
 import java.util.concurrent.TimeUnit
 
 /** HTTP + WebSocket client for a TV's remote control server (see RemoteControlServer). */
@@ -58,16 +60,34 @@ class TvRemoteClient(
 
     /** Sends this phone's library (from [gzippedLibrarySnapshot]) to be kept as its profile on the TV. */
     suspend fun uploadProfile(gzippedJson: ByteArray) {
+        upload("/api/profile", gzippedJson)
+    }
+
+    /** The receiver's data for a sync, with plays from [since] (epoch ms) on. */
+    suspend fun syncState(since: Long): SyncState =
+        TvDataSync.json.decodeFromString(SyncState.serializer(), execute(request("/api/sync?since=$since").get().build(), uploadHttp))
+
+    suspend fun postSync(state: SyncState) {
+        val body =
+            withContext(Dispatchers.Default) {
+                ByteArrayOutputStream().use { bytes ->
+                    GZIPOutputStream(bytes).bufferedWriter().use { it.write(TvDataSync.json.encodeToString(SyncState.serializer(), state)) }
+                    bytes.toByteArray()
+                }
+            }
+        upload("/api/sync", body)
+    }
+
+    private suspend fun upload(
+        path: String,
+        gzippedJson: ByteArray,
+    ) {
         val request =
-            request("/api/profile")
+            request(path)
                 .header("Content-Encoding", "gzip")
                 .post(gzippedJson.toRequestBody(JSON))
                 .build()
-        withContext(Dispatchers.IO) {
-            uploadHttp.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) throw HttpException(response.code)
-            }
-        }
+        execute(request, uploadHttp)
     }
 
     suspend fun command(
@@ -131,9 +151,12 @@ class TvRemoteClient(
             .url(baseUrl + path)
             .apply { token?.let { header("Authorization", "Bearer $it") } }
 
-    private suspend fun execute(request: Request): String =
+    private suspend fun execute(
+        request: Request,
+        client: OkHttpClient = http,
+    ): String =
         withContext(Dispatchers.IO) {
-            http.newCall(request).execute().use { response ->
+            client.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) throw HttpException(response.code)
                 response.body?.string().orEmpty()
             }
