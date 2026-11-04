@@ -16,6 +16,11 @@ const val TV_PROTOCOL_VERSION = 1
 const val TV_TXT_ID = "id"
 const val TV_TXT_VERSION = "v"
 
+/** What a receiver is, advertised as TXT `kind` and in [TvInfo]; absent means [DEVICE_KIND_TV]. */
+const val TV_TXT_KIND = "kind"
+const val DEVICE_KIND_TV = "tv"
+const val DEVICE_KIND_DESKTOP = "desktop"
+
 @Serializable
 data class RemoteArtist(
     val id: String? = null,
@@ -66,6 +71,7 @@ data class TvInfo(
     val name: String,
     val version: Int = TV_PROTOCOL_VERSION,
     val paired: Boolean = false,
+    val kind: String = DEVICE_KIND_TV,
 )
 
 @Serializable
@@ -132,6 +138,7 @@ data class PairedTv(
     val token: String,
     val host: String,
     val port: Int,
+    val kind: String = DEVICE_KIND_TV,
 )
 
 fun MediaMetadata.toRemoteTrack(

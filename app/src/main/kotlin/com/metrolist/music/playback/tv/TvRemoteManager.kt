@@ -122,9 +122,10 @@ class TvRemoteManager(
         host: String,
         port: Int,
         code: String,
+        kind: String = DEVICE_KIND_TV,
     ): PairedTv {
         val response = TvRemoteClient(host, port).pairFinish(code, service.deviceName())
-        val tv = PairedTv(response.tvId, response.tvName, response.token, host, port)
+        val tv = PairedTv(response.tvId, response.tvName, response.token, host, port, kind)
         savePaired(tv)
         return tv
     }
@@ -155,7 +156,7 @@ class TvRemoteManager(
             }
             val remotePlayer = TvRemotePlayer(client, scope)
             remotePlayer.refresh()
-            val connected = target.copy(name = info.name.ifBlank { target.name })
+            val connected = target.copy(name = info.name.ifBlank { target.name }, kind = info.kind)
             tv = connected
             service.setSessionPlayer(remotePlayer)
             _player.value = remotePlayer
@@ -163,7 +164,7 @@ class TvRemoteManager(
             _status.value = Status.Connected(connected)
             // Remembers where the TV was found and its current name
             savePaired(connected)
-            if (service.dataStore.data.first()[TvAutoSyncLibraryKey] == true) {
+            if (connected.kind == DEVICE_KIND_TV && service.dataStore.data.first()[TvAutoSyncLibraryKey] == true) {
                 scope.launch { runCatching { syncLibrary(connected) }.onFailure { Timber.tag(TAG).w(it, "Library sync failed") } }
             }
         } catch (e: Exception) {

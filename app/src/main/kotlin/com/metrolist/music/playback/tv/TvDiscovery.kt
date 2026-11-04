@@ -23,6 +23,7 @@ data class DiscoveredTv(
     val name: String,
     val host: String,
     val port: Int,
+    val kind: String = DEVICE_KIND_TV,
 )
 
 /**
@@ -133,6 +134,7 @@ class TvDiscovery(
             name = serviceName,
             host = hostAddress,
             port = port,
+            kind = attributes[TV_TXT_KIND]?.let { String(it, Charsets.UTF_8) } ?: DEVICE_KIND_TV,
         )
     }
 

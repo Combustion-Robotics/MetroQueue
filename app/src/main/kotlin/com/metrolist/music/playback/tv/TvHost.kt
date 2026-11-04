@@ -245,6 +245,7 @@ class TvAdvertiser(
                 setPort(port)
                 setAttribute(TV_TXT_ID, id)
                 setAttribute(TV_TXT_VERSION, TV_PROTOCOL_VERSION.toString())
+                setAttribute(TV_TXT_KIND, DEVICE_KIND_TV)
             }
         val registration =
             object : NsdManager.RegistrationListener {

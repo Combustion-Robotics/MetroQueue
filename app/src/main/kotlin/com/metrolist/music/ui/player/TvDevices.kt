@@ -60,6 +60,8 @@ import com.metrolist.music.LocalPlayerConnection
 import com.metrolist.music.R
 import com.metrolist.music.constants.TvAutoSyncLibraryKey
 import com.metrolist.music.playback.RemoteControlServer
+import com.metrolist.music.playback.tv.DEVICE_KIND_DESKTOP
+import com.metrolist.music.playback.tv.DEVICE_KIND_TV
 import com.metrolist.music.playback.tv.PairedTv
 import com.metrolist.music.playback.tv.TvRemoteClient
 import com.metrolist.music.playback.tv.TvRemoteManager
@@ -67,7 +69,17 @@ import com.metrolist.music.utils.rememberPreference
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
-/** Opens the "Play on TV" picker; tinted while playing on a TV. */
+private fun deviceIcon(kind: String) = if (kind == DEVICE_KIND_DESKTOP) R.drawable.computer else R.drawable.tv
+
+private val TvRemoteManager.Status.connectedTv: PairedTv?
+    get() =
+        when (this) {
+            is TvRemoteManager.Status.Connected -> tv
+            is TvRemoteManager.Status.Reconnecting -> tv
+            else -> null
+        }
+
+/** Opens the "Play on a device" picker; tinted while playing on a TV or computer. */
 @Composable
 fun TvDevicesButton(
     modifier: Modifier = Modifier,
@@ -78,7 +90,7 @@ fun TvDevicesButton(
     var showPicker by rememberSaveable { mutableStateOf(false) }
     IconButton(onClick = { showPicker = true }, modifier = modifier) {
         Icon(
-            painter = painterResource(R.drawable.tv),
+            painter = painterResource(deviceIcon(status.connectedTv?.kind ?: DEVICE_KIND_TV)),
             contentDescription = stringResource(R.string.play_on_tv),
             tint = if (status is TvRemoteManager.Status.Idle) tintColor else MaterialTheme.colorScheme.primary,
         )
@@ -86,7 +98,7 @@ fun TvDevicesButton(
     if (showPicker) TvDevicePicker(manager, onDismiss = { showPicker = false })
 }
 
-/** "Playing on <TV>" pill shown in the player while connected; opens the picker. */
+/** "Playing on <device>" pill shown in the player while connected; opens the picker. */
 @Composable
 fun TvConnectedIndicator(modifier: Modifier = Modifier) {
     val manager = LocalPlayerConnection.current?.service?.tvRemote ?: return
@@ -109,7 +121,7 @@ fun TvConnectedIndicator(modifier: Modifier = Modifier) {
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.padding(start = 10.dp, end = 14.dp, top = 6.dp, bottom = 6.dp),
         ) {
-            Icon(painterResource(R.drawable.tv), contentDescription = null, modifier = Modifier.size(18.dp))
+            Icon(painterResource(deviceIcon(status.connectedTv?.kind ?: DEVICE_KIND_TV)), contentDescription = null, modifier = Modifier.size(18.dp))
             Spacer(Modifier.width(8.dp))
             Text(text = text, style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
@@ -124,12 +136,14 @@ private data class TvEntry(
     val port: Int,
     val paired: PairedTv?,
     val online: Boolean,
+    val kind: String,
 )
 
 private data class PairingTarget(
     val name: String,
     val host: String,
     val port: Int,
+    val kind: String,
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -168,12 +182,12 @@ private fun TvDevicePicker(
             val online =
                 discovered.map { tv ->
                     val paired = pairedTvs.firstOrNull { it.id == tv.id }
-                    TvEntry(tv.id, tv.name, tv.host, tv.port, paired?.copy(host = tv.host, port = tv.port), online = true)
+                    TvEntry(tv.id, tv.name, tv.host, tv.port, paired?.copy(host = tv.host, port = tv.port, kind = tv.kind), online = true, kind = tv.kind)
                 }
             online +
                 pairedTvs
                     .filter { tv -> online.none { it.id == tv.id } }
-                    .map { TvEntry(it.id, it.name, it.host, it.port, it, online = false) }
+                    .map { TvEntry(it.id, it.name, it.host, it.port, it, online = false, kind = it.kind) }
         }
 
     fun launchAction(block: suspend () -> Unit) {
@@ -209,10 +223,11 @@ private fun TvDevicePicker(
         name: String,
         host: String,
         port: Int,
+        kind: String,
     ) = launchAction {
         manager.requestCode(host, port)
         code = ""
-        pairing = PairingTarget(name, host, port)
+        pairing = PairingTarget(name, host, port, kind)
     }
 
     fun connectManually(address: String) =
@@ -228,7 +243,7 @@ private fun TvDevicePicker(
             } else {
                 manager.requestCode(host, port)
                 code = ""
-                pairing = PairingTarget(info.name, host, port)
+                pairing = PairingTarget(info.name, host, port, info.kind)
             }
         }
 
@@ -258,9 +273,11 @@ private fun TvDevicePicker(
                             } else {
                                 stringResource(R.string.tv_reconnecting, tv.name)
                             },
+                        kind = tv.kind,
                         busy = busy,
+                        // Library profiles are a TV feature
                         sync =
-                            (current as? TvRemoteManager.Status.Connected)?.let {
+                            (current as? TvRemoteManager.Status.Connected)?.takeIf { tv.kind == DEVICE_KIND_TV }?.let {
                                 LibrarySyncState(
                                     lastSynced = syncTimes[tv.id],
                                     syncing = syncing,
@@ -312,7 +329,7 @@ private fun TvDevicePicker(
                                 busy = busy,
                                 onPair = {
                                     launchAction {
-                                        val tv = manager.pair(target.host, target.port, code)
+                                        val tv = manager.pair(target.host, target.port, code, target.kind)
                                         pairing = null
                                         manager.connect(tv, transfer = moveQueue && hasLocalQueue)
                                         onDismiss()
@@ -346,7 +363,7 @@ private fun TvDevicePicker(
                                     enabled = !busy,
                                     onClick = {
                                         val paired = entry.paired
-                                        if (paired != null) connect(paired) else startPairing(entry.name, entry.host, entry.port)
+                                        if (paired != null) connect(paired) else startPairing(entry.name, entry.host, entry.port, entry.kind)
                                     },
                                     onForget = entry.paired?.let { paired -> { coroutineScope.launch { manager.forget(paired) } } },
                                 )
@@ -413,7 +430,7 @@ private fun TvEntryRow(
         },
         leadingContent = {
             Icon(
-                painterResource(R.drawable.tv),
+                painterResource(deviceIcon(entry.kind)),
                 contentDescription = null,
                 tint = if (entry.online) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -442,6 +459,7 @@ private class LibrarySyncState(
 @Composable
 private fun ConnectedCard(
     title: String,
+    kind: String,
     busy: Boolean,
     sync: LibrarySyncState?,
     onPlayHere: () -> Unit,
@@ -454,7 +472,7 @@ private fun ConnectedCard(
     ) {
         Column(Modifier.padding(20.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(painterResource(R.drawable.tv), contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                Icon(painterResource(deviceIcon(kind)), contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                 Spacer(Modifier.width(12.dp))
                 Text(text = title, style = MaterialTheme.typography.titleMedium)
             }
