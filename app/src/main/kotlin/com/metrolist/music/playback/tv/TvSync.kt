@@ -35,6 +35,35 @@ data class SyncTombstones(
     val vibes: Map<String, Long> = emptyMap(),
 )
 
+@Serializable
+data class SyncAlbum(
+    val id: String? = null,
+    val title: String = "",
+)
+
+/** A playlist entry; [local] = a local file of the sending device (other devices may not play it). */
+@Serializable
+data class SyncPlaylistSong(
+    val id: String,
+    val title: String = "",
+    val artists: List<RemoteArtist> = emptyList(),
+    val album: SyncAlbum? = null,
+    val thumbnail: String? = null,
+    val durationMs: Long = 0L,
+    val local: Boolean = false,
+)
+
+/** A local, editable playlist; [deleted] = tombstone, deleted at [updatedAt]. */
+@Serializable
+data class SyncPlaylist(
+    val id: String,
+    val name: String = "",
+    val updatedAt: Long = 0L,
+    val deleted: Boolean = false,
+    val thumbnailUrl: String? = null,
+    val songs: List<SyncPlaylistSong> = emptyList(),
+)
+
 /** MetroQueue-only data exchanged with a paired receiver (see SYNC.md). */
 @Serializable
 data class SyncState(
@@ -46,6 +75,7 @@ data class SyncState(
     val vibes: List<Vibe> = emptyList(),
     val settings: Map<String, SyncSetting> = emptyMap(),
     val deleted: SyncTombstones = SyncTombstones(),
+    val playlists: List<SyncPlaylist> = emptyList(),
 )
 
 /** Last-writer-wins merging, the same on both sides, so a sync converges. */
@@ -90,6 +120,33 @@ object SyncMerge {
         }
         return Merged(items, cap(deleted.filterKeys { it !in items }))
     }
+
+    /**
+     * [merge] for playlists, whose tombstones travel in the same list ([SyncPlaylist.deleted]).
+     * Remote playlists with an id in [blocked] (not a synced playlist here) are ignored.
+     */
+    fun playlists(
+        local: Map<String, SyncPlaylist>,
+        localDeleted: Map<String, Long>,
+        remote: List<SyncPlaylist>,
+        remoteWinsTies: Boolean,
+        blocked: Set<String> = emptySet(),
+    ): Merged<SyncPlaylist> {
+        val (remoteDeleted, remoteItems) = remote.filter { it.id.isNotBlank() && it.id !in blocked }.partition { it.deleted }
+        return merge(
+            local,
+            localDeleted,
+            remoteItems.associateBy { it.id },
+            remoteDeleted.groupingBy { it.id }.fold(0L) { time, it -> maxOf(time, it.updatedAt) },
+            remoteWinsTies,
+        ) { it.updatedAt }
+    }
+
+    /** Playlists as sent: the items, then a tombstone per deletion. */
+    fun playlistsWithTombstones(
+        items: Collection<SyncPlaylist>,
+        deleted: Map<String, Long>,
+    ): List<SyncPlaylist> = items + deleted.map { (id, time) -> SyncPlaylist(id, updatedAt = time, deleted = true) }
 
     /** The newest [MAX_TOMBSTONES] tombstones. */
     fun cap(tombstones: Map<String, Long>): Map<String, Long> =

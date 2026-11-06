@@ -123,6 +123,7 @@ import com.metrolist.music.extensions.toMediaItem
 import com.metrolist.music.models.toMediaMetadata
 import com.metrolist.music.playback.ExoDownloadService
 import com.metrolist.music.playback.queues.ListQueue
+import com.metrolist.music.playback.tv.markPlaylistSyncDeleted
 import com.metrolist.music.ui.component.ActionPromptDialog
 import com.metrolist.music.ui.component.DefaultDialog
 import com.metrolist.music.ui.component.DraggableScrollbar
@@ -399,7 +400,10 @@ fun LocalPlaylistScreen(
                     onClick = {
                         showDeletePlaylistDialog = false
                         database.query {
-                            playlist?.let { delete(it.playlist) }
+                            playlist?.let {
+                                delete(it.playlist)
+                                if (it.playlist.browseId == null) context.markPlaylistSyncDeleted(it.id)
+                            }
                         }
                         viewModel.viewModelScope.launch(Dispatchers.IO) {
                             playlist?.playlist?.browseId?.let { YouTube.deletePlaylist(it) }
@@ -442,6 +446,7 @@ fun LocalPlaylistScreen(
                 viewModel.viewModelScope.launch(Dispatchers.IO) {
                     database.withTransaction {
                         move(viewModel.playlistId, from, to)
+                        updatePlaylistLastUpdated(viewModel.playlistId)
                     }
 
                     // Sync order with YT Music
@@ -567,6 +572,7 @@ fun LocalPlaylistScreen(
                         database.transaction {
                             move(playlistId, currentItem.map.position, Int.MAX_VALUE)
                             delete(currentItem.map.copy(position = Int.MAX_VALUE))
+                            updatePlaylistLastUpdated(playlistId)
                         }
 
                         if (browseId != null) {
@@ -974,7 +980,7 @@ fun LocalPlaylistHeader(
 
                     // Update the database with the new thumbnail
                     database.query {
-                        update(playlist.playlist.copy(thumbnailUrl = uri.toString()))
+                        update(playlist.playlist.copy(thumbnailUrl = uri.toString(), lastUpdateTime = LocalDateTime.now()))
                     }
                 }
 
@@ -1126,7 +1132,7 @@ fun LocalPlaylistHeader(
                                                         playlist.playlist.browseId == null -> {
                                                             overrideThumbnail.value = null
                                                             database.query {
-                                                                update(playlist.playlist.copy(thumbnailUrl = null))
+                                                                update(playlist.playlist.copy(thumbnailUrl = null, lastUpdateTime = LocalDateTime.now()))
                                                             }
                                                         }
 
@@ -1207,7 +1213,7 @@ fun LocalPlaylistHeader(
                                                         playlist.playlist.browseId == null -> {
                                                             overrideThumbnail.value = null
                                                             database.query {
-                                                                update(playlist.playlist.copy(thumbnailUrl = null))
+                                                                update(playlist.playlist.copy(thumbnailUrl = null, lastUpdateTime = LocalDateTime.now()))
                                                             }
                                                         }
 

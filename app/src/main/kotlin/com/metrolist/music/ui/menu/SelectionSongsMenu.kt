@@ -625,6 +625,7 @@ fun SelectionSongMenu(
                                             songPosition.forEach { cur ->
                                                 move(cur.playlistId, cur.position - i, Int.MAX_VALUE)
                                                 delete(cur.copy(position = Int.MAX_VALUE))
+                                                updatePlaylistLastUpdated(cur.playlistId)
                                                 i++
                                             }
                                         }

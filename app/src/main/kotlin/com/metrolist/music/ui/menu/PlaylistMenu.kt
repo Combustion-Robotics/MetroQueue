@@ -57,6 +57,7 @@ import com.metrolist.music.extensions.toMediaItem
 import com.metrolist.music.playback.ExoDownloadService
 import com.metrolist.music.playback.queues.ListQueue
 import com.metrolist.music.playback.queues.YouTubeQueue
+import com.metrolist.music.playback.tv.markPlaylistSyncDeleted
 import com.metrolist.music.ui.component.DefaultDialog
 import com.metrolist.music.ui.component.Material3MenuGroup
 import com.metrolist.music.ui.component.Material3MenuItemData
@@ -247,6 +248,7 @@ fun PlaylistMenu(
                             }
                             // Then delete the playlist
                             delete(playlist.playlist)
+                            if (playlist.playlist.browseId == null) context.markPlaylistSyncDeleted(playlist.id)
                         }
 
                         coroutineScope.launch(Dispatchers.IO) {

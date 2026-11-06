@@ -26,6 +26,10 @@ import com.metrolist.music.constants.SyncSettingsKey
 import com.metrolist.music.constants.SyncTombstonesKey
 import com.metrolist.music.db.MusicDatabase
 import com.metrolist.music.db.entities.Event
+import com.metrolist.music.db.entities.PlaylistEntity
+import com.metrolist.music.db.entities.PlaylistSongMap
+import com.metrolist.music.db.entities.Song
+import com.metrolist.music.models.MediaMetadata
 import com.metrolist.music.models.toMediaMetadata
 import com.metrolist.music.playback.mix.CustomTransition
 import com.metrolist.music.playback.mix.CustomTransitionRepository
@@ -53,6 +57,7 @@ import kotlinx.serialization.json.decodeFromStream
 import kotlinx.serialization.json.floatOrNull
 import kotlinx.serialization.json.intOrNull
 import timber.log.Timber
+import java.io.File
 import java.io.InputStream
 import java.time.Instant
 import java.time.LocalDateTime
@@ -130,8 +135,66 @@ suspend fun Context.markSyncDeleted(
     }
 }
 
+private const val PLAYLIST_TOMBSTONES_FILE = "playlist_tombstones.json"
+private val PLAYLIST_TOMBSTONES = MapSerializer(String.serializer(), Long.serializer())
+private val playlistTombstonesLock = Any()
+
+private fun Context.readPlaylistTombstones(): Map<String, Long> =
+    synchronized(playlistTombstonesLock) {
+        runCatching { TvDataSync.json.decodeFromString(PLAYLIST_TOMBSTONES, File(filesDir, PLAYLIST_TOMBSTONES_FILE).readText()) }
+            .getOrDefault(emptyMap())
+    }
+
+private fun Context.writePlaylistTombstones(tombstones: Map<String, Long>) =
+    synchronized(playlistTombstonesLock) {
+        File(filesDir, PLAYLIST_TOMBSTONES_FILE).writeText(TvDataSync.json.encodeToString(PLAYLIST_TOMBSTONES, tombstones))
+    }
+
+/** Remembers that a local playlist was deleted, so a sync deletes it on the other device too. Blocking. */
+fun Context.markPlaylistSyncDeleted(id: String) =
+    synchronized(playlistTombstonesLock) {
+        writePlaylistTombstones(SyncMerge.cap(readPlaylistTombstones() + (id to System.currentTimeMillis())))
+    }
+
+private val PSEUDO_PLAYLISTS =
+    setOf(
+        PlaylistEntity.LIKED_PLAYLIST_ID,
+        PlaylistEntity.DOWNLOADED_PLAYLIST_ID,
+        PlaylistEntity.WEEKLY_MOST_PLAYLIST_ID,
+        PlaylistEntity.MONTHLY_MOST_PLAYLIST_ID,
+    )
+
+/** Local, editable playlists sync; YouTube ones sync through the account. */
+private val PlaylistEntity.isSynced get() = browseId == null && isEditable && id !in PSEUDO_PLAYLISTS
+
+// Covers picked from the gallery are content:// URIs, useless on another device
+private fun String.isWebUrl() = startsWith("https://") || startsWith("http://")
+
+private fun Song.toSyncPlaylistSong() =
+    toMediaMetadata().let { m ->
+        SyncPlaylistSong(
+            id = m.id,
+            title = m.title,
+            artists = m.artists.map { RemoteArtist(it.id, it.name) },
+            album = m.album?.let { SyncAlbum(it.id, it.title) },
+            thumbnail = m.thumbnailUrl?.takeIf { it.isWebUrl() },
+            durationMs = m.duration.coerceAtLeast(0) * 1000L,
+            local = song.isLocal,
+        )
+    }
+
+private fun SyncPlaylistSong.toMediaMetadata() =
+    MediaMetadata(
+        id = id,
+        title = title,
+        artists = artists.map { MediaMetadata.Artist(it.id, it.name) },
+        duration = (durationMs / 1000L).toInt().takeIf { it > 0 } ?: -1,
+        thumbnailUrl = thumbnail?.takeIf { it.isWebUrl() },
+        album = album?.id?.let { MediaMetadata.Album(it, album.title) },
+    )
+
 /**
- * Two-way sync of MetroQueue-only data (play history, custom transitions and vibes, a few settings)
+ * Two-way sync of MetroQueue-only data (play history, custom transitions and vibes, a few settings, local playlists)
  * with a paired device, as described in SYNC.md. Both the phone (client) and the TV (receiver) use it.
  */
 class TvDataSync(
@@ -169,6 +232,11 @@ class TvDataSync(
                 vibes = CustomVibes.vibes.value,
                 settings = currentSettings(prefs, decodeSettings(prefs[SyncSettingsKey]), now),
                 deleted = decodeTombstones(prefs[SyncTombstonesKey]),
+                playlists =
+                    SyncMerge.playlistsWithTombstones(
+                        localPlaylists(database.playlistEntitiesByNameAsc()).values,
+                        context.readPlaylistTombstones(),
+                    ),
             )
         }
 
@@ -222,7 +290,51 @@ class TvDataSync(
             prefs[SyncTombstonesKey] = json.encodeToString(SyncTombstones.serializer(), SyncTombstones(deletedTransitions, deletedVibes))
         }
 
+        applyPlaylists(state, remoteWinsTies)
         insertHistory(state)
+    }
+
+    private fun localPlaylists(entities: Collection<PlaylistEntity>): Map<String, SyncPlaylist> =
+        entities.filter { it.isSynced }.associate { playlist ->
+            playlist.id to
+                SyncPlaylist(
+                    id = playlist.id,
+                    name = playlist.name,
+                    updatedAt = playlist.lastUpdateTime?.toEpochMilli() ?: 0L,
+                    thumbnailUrl = playlist.thumbnailUrl?.takeIf { it.isWebUrl() },
+                    songs = database.playlistSongsBlocking(playlist.id).map { it.song.toSyncPlaylistSong() },
+                )
+        }
+
+    private suspend fun applyPlaylists(
+        state: SyncState,
+        remoteWinsTies: Boolean,
+    ) {
+        val entities = database.playlistEntitiesByNameAsc().associateBy { it.id }
+        val local = localPlaylists(entities.values)
+        // Never let another device overwrite a YouTube or built-in playlist that shares an id
+        val blocked = entities.keys - local.keys + PSEUDO_PLAYLISTS
+        val merged = SyncMerge.playlists(local, context.readPlaylistTombstones(), state.playlists, remoteWinsTies, blocked)
+        database.withTransaction {
+            (local.keys - merged.items.keys).forEach { delete(entities.getValue(it)) }
+            merged.items.values.filter { it != local[it.id] }.forEach { playlist ->
+                val existing = entities[playlist.id]
+                val entity =
+                    (existing ?: PlaylistEntity(id = playlist.id, name = playlist.name, bookmarkedAt = LocalDateTime.now())).copy(
+                        name = playlist.name,
+                        // A cover only this device can show stays until the other device sets a real one
+                        thumbnailUrl = playlist.thumbnailUrl?.takeIf { it.isWebUrl() } ?: existing?.thumbnailUrl?.takeUnless { it.isWebUrl() },
+                        lastUpdateTime = playlist.updatedAt.toLocalDateTime(),
+                    )
+                if (existing == null) insert(entity) else update(entity)
+                clearPlaylist(playlist.id)
+                playlist.songs.filter { it.id.isNotBlank() }.forEachIndexed { index, song ->
+                    insert(song.toMediaMetadata()) { it.copy(isLocal = song.local) }
+                    insert(PlaylistSongMap(playlistId = playlist.id, songId = song.id, position = index))
+                }
+            }
+        }
+        context.writePlaylistTombstones(merged.deleted)
     }
 
     private suspend fun insertHistory(state: SyncState) {

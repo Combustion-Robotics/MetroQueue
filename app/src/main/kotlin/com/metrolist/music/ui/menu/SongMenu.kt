@@ -842,6 +842,7 @@ fun SongMenu(
                                                     Int.MAX_VALUE
                                                 )
                                                 delete(ps.map.copy(position = Int.MAX_VALUE))
+                                                updatePlaylistLastUpdated(ps.map.playlistId)
                                             }
                                             playlistBrowseId?.let { browseId ->
                                                 syncUtils.scheduleRemoveFromPlaylist(

@@ -101,4 +101,32 @@ class SyncMergeTest {
             SyncMerge.newHistory(local, remote),
         )
     }
+
+    @Test
+    fun newerPlaylistReplacesTheWholeItem() {
+        val mine = SyncPlaylist("LPa", "Mine", 5, songs = listOf(SyncPlaylistSong("s1"), SyncPlaylistSong("s2")))
+        val theirs = SyncPlaylist("LPa", "Theirs", 6, songs = listOf(SyncPlaylistSong("s2")))
+        val merged = SyncMerge.playlists(mapOf("LPa" to mine), emptyMap(), listOf(theirs), remoteWinsTies = false)
+        assertEquals(theirs, merged.items.getValue("LPa"))
+    }
+
+    @Test
+    fun playlistTombstonesTravelInTheList() {
+        val mine = mapOf("LPa" to SyncPlaylist("LPa", "Old", 5), "LPb" to SyncPlaylist("LPb", "Kept", 9))
+        val remote = listOf(SyncPlaylist("LPa", updatedAt = 7, deleted = true), SyncPlaylist("LPb", updatedAt = 8, deleted = true))
+        val merged = SyncMerge.playlists(mine, emptyMap(), remote, remoteWinsTies = true)
+        assertEquals(setOf("LPb"), merged.items.keys)
+        assertEquals(mapOf("LPa" to 7L), merged.deleted)
+        assertEquals(
+            listOf(SyncPlaylist("LPb", "Kept", 9), SyncPlaylist("LPa", updatedAt = 7, deleted = true)),
+            SyncMerge.playlistsWithTombstones(merged.items.values, merged.deleted),
+        )
+    }
+
+    @Test
+    fun blockedPlaylistIdsAreIgnored() {
+        val remote = listOf(SyncPlaylist("LP_LIKED", "Hijack", 9), SyncPlaylist("", "Blank", 9), SyncPlaylist("LPDx", "New", 1))
+        val merged = SyncMerge.playlists(emptyMap(), emptyMap(), remote, remoteWinsTies = true, blocked = setOf("LP_LIKED"))
+        assertEquals(setOf("LPDx"), merged.items.keys)
+    }
 }
