@@ -4,7 +4,7 @@
 
 # MetroQueue
 
-### A YouTube Music client for Android that mixes your songs, respects your queue and has a remote for your PC
+### A YouTube Music client for Android (and Android TV) that mixes your songs, respects your queue and has a remote for your PC
 
 [![Latest release](https://img.shields.io/github/v/release/Combustion-Robotics/MetroQueue?style=for-the-badge&labelColor=0d1117)](https://github.com/Combustion-Robotics/MetroQueue/releases/latest)
 [![License](https://img.shields.io/github/license/Combustion-Robotics/MetroQueue?style=for-the-badge&labelColor=0d1117)](LICENSE)
@@ -18,11 +18,16 @@
 
 MetroQueue is a fork of [Metrolist](https://github.com/MetrolistGroup/Metrolist), the Material 3 YouTube Music client. It keeps everything Metrolist does and adds:
 
-- **[Smart mix](#smart-mix)**: Spotify-style transitions, planned for every pair of songs on your phone.
-- **[Transition editor](#transition-editor)**: see both songs' waveforms and shape the blend yourself.
-- **[A queue that respects your picks](#a-queue-that-respects-your-picks)**: the songs you add play first.
-- **[Remote control](#remote-control-from-your-pc)**: control the music from any browser on your Wi-Fi.
-- **[Voice](#voice)**: "Play *Bohemian Rhapsody* on MetroQueue" with Gemini or Google Assistant.
+| | |
+|---|---|
+| 🎚️ **[Smart mix](#smart-mix)** | Spotify-style transitions, planned for every pair of songs on your phone. |
+| ✂️ **[Transition editor](#transition-editor)** | See both songs' waveforms and shape the blend yourself. |
+| 📋 **[A queue that respects your picks](#a-queue-that-respects-your-picks)** | The songs you add play first. |
+| 🌌 **[Vibe mode](#vibe-mode)** | Full-screen animated pixel-art scenes that play along with your music. |
+| 🎤 **[Lyrics effects](#lyrics-effects)** | Glowing words, depth blur and an animated background. |
+| 📺 **[Android TV](#android-tv)** | A TV app you can pair with your phone. |
+| 🖥️ **[Remote control](#remote-control-from-your-pc)** | Control the music from any browser on your Wi-Fi. |
+| 🗣️ **[Voice](#voice)** | "Play *Bohemian Rhapsody* on MetroQueue" with Gemini or Google Assistant. |
 
 Metrolist is moving on to Metrolist-KMP. MetroQueue carries the Android app forward from Metrolist 13.7.0.
 
@@ -69,6 +74,36 @@ Open it from:
 
 Turn these on in **Settings → Player and audio**.
 
+### Vibe mode
+
+Full-screen, animated pixel-art scenes that play along with your music.
+
+- **Four preset scenes:** *Winter dusk*, *Rainy city night*, *Starry lake* and *Spring blossoms*.
+- **Alive:** falling snow and petals, rain, fireflies, twinkling and shooting stars, drifting clouds, lightning and chimney smoke.
+- **Music included.** Each vibe plays its own endless radio, or keep what you're already listening to.
+- **Make your own.** Pick the sky, scene, foreground and effects, then play a library playlist, a YouTube Music playlist (searchable) or an endless radio.
+- **Small song bar** with play/pause and next, for portrait and landscape.
+
+Open it from **Now Playing → ⋮ → Vibe mode**. To get a **Vibes** tab, turn it on in **Settings → Appearance**.
+
+### Lyrics effects
+
+- **Glow** on every sung word, and a soft halo behind the current line.
+- **Depth blur** and dimming on the lines around it.
+- **Animated background** in the artwork's colours that swells with the beat.
+- **Instrumental breaks** show an indicator that breathes with the beat.
+- **Easy on the battery.** Effects pause while paused or minimised, and the screen only stays on while music plays.
+
+Choose **Full**, **Subtle** or **Off** in **Settings → Appearance → Lyrics → Lyrics effects**. Battery saver switches Full to Subtle.
+
+### Android TV
+
+MetroQueue also runs on Android TV, with Home, Search, Library, Queue, Now Playing with lyrics, Vibes and Settings screens.
+
+- **Pair your phone.** Open MetroQueue on both devices on the same Wi-Fi, enter the code shown on the TV, and the TV shows up in the player. You can move what's playing to the TV.
+- **Browser remote.** The TV shows a link to control it from any browser on the same Wi-Fi.
+- **Voice search** and **YouTube Music sign-in** for your playlists, likes and recommendations.
+
 ### Remote control from your PC
 
 - Turn on **Settings → Integrations → Remote control** and open the link it shows on any browser on the same Wi-Fi. Nothing to install on the PC.
@@ -83,6 +118,10 @@ Turn these on in **Settings → Player and audio**.
 ### Voice
 
 Ask Gemini or Google Assistant to *"play … on MetroQueue"* and it searches YouTube Music and starts playing.
+
+### New defaults
+
+If you never changed them, new installs and updates use the **pure black (AMOLED)** theme and the **classic player** design.
 
 ### Builds
 
@@ -100,7 +139,8 @@ Ask Gemini or Google Assistant to *"play … on MetroQueue"* and it searches You
 - Background playback
 - Download & cache for offline use
 - Skip silence
-- Sleep timer
+- Sleep timer, with fade out and repeat schedules
+- Music alarm: wake up to a playlist
 
 </td>
     <td width="50%" valign="top">
@@ -165,7 +205,7 @@ Ask Gemini or Google Assistant to *"play … on MetroQueue"* and it searches You
 
 - **They're separate apps.** MetroQueue and MetroQueue Beta can be installed at the same time, and next to the official Metrolist.
 - **Coming from Metrolist?** In Metrolist, go to **Settings → Backup and restore**, make a backup, then restore it in MetroQueue.
-- **Android version.** Android 8.0 or newer is required.
+- **Android version.** Android 8.0 or newer is required. The same APK also installs on Android TV.
 
 ## Building
 
