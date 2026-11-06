@@ -1,0 +1,9 @@
+MetroQueue 1.4.1: Sync with your other devices
+
+Play on a device
+- The device picker now finds TVs and computers (MetroQueue Desktop), each with its own icon
+
+Two-way sync with paired devices (MetroQueue Desktop and MetroQueue TV)
+- Syncs your play history, custom transitions, custom vibes, local playlists and shared settings (Mix, gapless, lyrics effects, pure black, theme and accent colour)
+- The newest change wins, deletions sync too, plays are merged without duplicates
+- "Sync now" in the device sheet, plus automatic sync when connecting (on by default for computers)
