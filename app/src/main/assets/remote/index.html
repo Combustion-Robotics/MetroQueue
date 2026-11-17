@@ -205,6 +205,17 @@
   }
   #snackbar.show { opacity: 1; transform: translate(-50%, 0); }
 
+  /* Pairing: shown until this browser has a token from the phone */
+  #pair { position: fixed; inset: 0; z-index: 10; display: grid; place-items: center; padding: 16px; background: var(--surface); }
+  #pair[hidden] { display: none; }
+  #pair form { width: 100%; max-width: 360px; display: flex; flex-direction: column; gap: 16px; padding: 24px; border-radius: 28px; background: var(--surface-container-high); }
+  #pair h2 { margin: 0; font-size: 24px; line-height: 32px; font-weight: 400; }
+  #pair p { margin: 0; color: var(--on-surface-variant); }
+  #pair input { height: 56px; padding: 0 16px; border-radius: 4px; border: 1px solid var(--outline); background: none; color: var(--on-surface); font: inherit; font-size: 24px; letter-spacing: 8px; text-align: center; }
+  #pair .pair-acts { display: flex; justify-content: flex-end; gap: 8px; }
+  #pair button { height: 40px; padding: 0 24px; border-radius: 20px; font-weight: 500; color: var(--primary); }
+  #pair button[type=submit] { background: var(--primary); color: var(--on-primary); }
+
   @media (max-width: 820px) {
     body { overflow: auto; }
     .app { grid-template-columns: 1fr; height: auto; padding: 16px; gap: 24px; }
@@ -261,10 +272,23 @@
     </div>
   </section>
 </main>
+<div id="pair" hidden>
+  <form id="pair-form">
+    <h2>Pair this browser</h2>
+    <p id="pair-msg">Enter the code shown on your phone</p>
+    <input id="pair-code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="[0-9]{6}" required aria-label="Code">
+    <div class="pair-acts">
+      <button type="button" id="pair-again">New code</button>
+      <button type="submit">Pair</button>
+    </div>
+  </form>
+</div>
 <div id="snackbar" role="status"></div>
 
 <script>
-const KEY = new URLSearchParams(location.search).get("key") || "";
+const TOKEN_KEY = "metroqueue-token";
+let token = "";
+try { token = localStorage.getItem(TOKEN_KEY) || ""; } catch {}
 const $ = (id) => document.getElementById(id);
 // Paths copied from the app's Material Symbols drawables
 const ICONS = {
@@ -305,9 +329,12 @@ function icon(name) {
 document.querySelectorAll("svg[data-icon]").forEach((svg) => setIcon(svg, svg.dataset.icon));
 
 async function api(path, params = {}, method = "GET") {
-  const q = new URLSearchParams({ key: KEY, ...params });
-  const res = await fetch(`${path}?${q}`, { method, cache: "no-store" });
-  if (res.status === 403) throw new Error("bad-key");
+  const q = new URLSearchParams(params);
+  const res = await fetch(`${path}?${q}`, { method, cache: "no-store", headers: { Authorization: `Bearer ${token}` } });
+  if (res.status === 403) {
+    showPairing();
+    throw new Error("unpaired");
+  }
   if (!res.ok) throw new Error(res.status);
   return res.status === 204 ? null : res.json();
 }
@@ -453,31 +480,32 @@ async function applyState(next) {
 let push = null;
 const pushing = () => push?.readyState === WebSocket.OPEN;
 function connectPush() {
-  if (push || document.hidden) return;
+  if (push || document.hidden || !token) return;
   const scheme = location.protocol === "https:" ? "wss" : "ws";
   try {
-    push = new WebSocket(`${scheme}://${location.host}/api/ws?key=${encodeURIComponent(KEY)}`);
+    // Browsers can't set headers on a WebSocket, so the token goes in the query
+    push = new WebSocket(`${scheme}://${location.host}/api/ws?token=${encodeURIComponent(token)}`);
   } catch {
     push = null;
     return;
   }
   push.onmessage = (e) => applyState(JSON.parse(e.data)).catch(() => {});
-  push.onclose = () => {
+  push.onclose = (e) => {
     push = null;
+    // Forgotten on the phone: the next request gets 403 and shows the pairing form
+    if (e.code === 1008) poll();
     setTimeout(connectPush, 3000);
   };
 }
 
 let polling = false;
 async function poll() {
-  if (polling || pushing()) return;
+  if (polling || pushing() || !token) return;
   polling = true;
   try {
     await applyState(await api("/api/state"));
   } catch (e) {
-    if (e.message === "bad-key") {
-      snackbar("This link is invalid. Copy it again from MetroQueue settings");
-    } else if (++failures === 3) {
+    if (e.message !== "unpaired" && ++failures === 3) {
       snackbar("Can't reach your phone. Is MetroQueue open on the same Wi-Fi?");
     }
   } finally {
@@ -571,8 +599,60 @@ document.addEventListener("visibilitychange", () => {
     poll();
   }
 });
-connectPush();
-poll();
+// Pairing: the phone shows a code, the browser sends it back and gets a token
+const UNREACHABLE = "Can't reach your phone. Is MetroQueue open on the same Wi-Fi?";
+function browserName() {
+  const ua = navigator.userAgent;
+  const browser = /Edg\//.test(ua) ? "Edge" : /Firefox\//.test(ua) ? "Firefox" : /Chrome\//.test(ua) ? "Chrome" : /Safari\//.test(ua) ? "Safari" : "";
+  const os = /Windows/.test(ua) ? "Windows" : /iPhone|iPad/.test(ua) ? "iOS" : /Android/.test(ua) ? "Android" : /Mac OS X/.test(ua) ? "macOS" : /Linux/.test(ua) ? "Linux" : "";
+  const hint = [browser, os].filter(Boolean).join(" on ");
+  return hint ? `Browser · ${hint}` : "Browser";
+}
+const pairPost = (path, body) =>
+  fetch(path, { method: "POST", cache: "no-store", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).catch(() => null);
+async function requestCode() {
+  const res = await pairPost("/api/pair/start", { name: browserName() });
+  $("pair-msg").textContent =
+    res?.status === 204 ? "Enter the code shown on your phone"
+    : res?.status === 429 ? "Too many tries. Wait a minute and try again"
+    : UNREACHABLE;
+}
+function showPairing() {
+  if (!$("pair").hidden) return;
+  token = "";
+  try { localStorage.removeItem(TOKEN_KEY); } catch {}
+  push?.close();
+  $("pair").hidden = false;
+  $("pair-code").value = "";
+  $("pair-code").focus();
+  requestCode();
+}
+$("pair-again").onclick = requestCode;
+$("pair-form").onsubmit = async (e) => {
+  e.preventDefault();
+  const res = await pairPost("/api/pair/finish", { code: $("pair-code").value.trim(), name: browserName() });
+  if (res?.ok) {
+    token = (await res.json()).token;
+    try { localStorage.setItem(TOKEN_KEY, token); } catch {}
+    $("pair").hidden = true;
+    connectPush();
+    poll();
+    return;
+  }
+  $("pair-code").value = "";
+  $("pair-msg").textContent =
+    res?.status === 401 ? "That code isn't right"
+    : res?.status === 410 ? "The code expired. Tap New code"
+    : res?.status === 429 ? "Too many tries. Wait a few minutes and try again"
+    : UNREACHABLE;
+};
+
+if (token) {
+  connectPush();
+  poll();
+} else {
+  showPairing();
+}
 </script>
 </body>
 </html>

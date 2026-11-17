@@ -35,6 +35,7 @@ import com.metrolist.music.models.MediaMetadata
 import com.metrolist.music.models.toMediaMetadata
 import com.metrolist.music.playback.queues.ListQueue
 import com.metrolist.music.playback.queues.YouTubeQueue
+import com.metrolist.music.playback.tv.DEVICE_KIND_TV
 import com.metrolist.music.playback.tv.LimitedInputStream
 import com.metrolist.music.playback.tv.PairFinishRequest
 import com.metrolist.music.playback.tv.PairFinishResponse
@@ -94,23 +95,23 @@ import java.net.Inet4Address
 import java.net.Inet6Address
 import java.net.InetAddress
 import java.net.NetworkInterface
-import java.security.MessageDigest
 import java.util.concurrent.ConcurrentHashMap
 import java.util.zip.GZIPInputStream
 
 /**
- * LAN remote: serves assets/remote/index.html and a small JSON API. Browsers authenticate with
- * [browserKey] (`?key=`); phones paired through [pairing] (TV only) send their token as a bearer
- * token. `/api/ws` pushes the player state whenever it changes, so clients don't poll.
+ * LAN remote: a small JSON API and, with [browserRemote], the browser page assets/remote/index.html.
+ * Devices and browsers pair through [pairing] with a code and send their token as a bearer token.
+ * `/api/ws` pushes the player state whenever it changes, so clients don't poll.
  */
 class RemoteControlServer(
     private val service: MusicService,
-    private val browserKey: String?,
+    private val browserRemote: Boolean,
     private val pairing: TvPairing?,
     private val tvId: String? = null,
     private val tvName: String? = null,
     private val profiles: TvProfileStore? = null,
     private val dataSync: TvDataSync? = null,
+    private val kind: String = DEVICE_KIND_TV,
 ) {
     private val json = Json {
         encodeDefaults = true
@@ -140,12 +141,14 @@ class RemoteControlServer(
                 timeoutMillis = 30_000L
             }
             routing {
+                // The page holds no secrets; it pairs with a code before it can do anything
                 get("/") {
-                    if (call.authorized()) call.respondText(page, ContentType.Text.Html)
+                    if (!browserRemote || !call.fromLan()) return@get call.respond(HttpStatusCode.NotFound)
+                    call.respondText(page, ContentType.Text.Html)
                 }
                 get("/api/info") {
                     if (!call.fromLan() || tvId == null) return@get call.respond(HttpStatusCode.NotFound)
-                    call.respondJson(json.encodeToString(TvInfo(id = tvId, name = tvName.orEmpty(), paired = call.hasPairedToken(), sync = if (dataSync != null) SYNC_VERSION else 0)))
+                    call.respondJson(json.encodeToString(TvInfo(id = tvId, name = tvName.orEmpty(), paired = call.hasPairedToken(), kind = kind, sync = if (dataSync != null) SYNC_VERSION else 0)))
                 }
                 post("/api/pair/start") {
                     val pairing = pairing
@@ -212,6 +215,8 @@ class RemoteControlServer(
                     val ok =
                         onMain {
                             if (!canControl()) return@onMain false
+                            // Another device sending playback here: stop controlling it and play locally
+                            service.leaveRemoteDevice()
                             service.playSnapshot(snapshot)
                             service.remoteQueueLoaded.tryEmit(Unit)
                             true
@@ -249,7 +254,7 @@ class RemoteControlServer(
                     call.respond(HttpStatusCode.NoContent)
                 }
                 webSocket("/api/ws") {
-                    if (!call.hasAccess()) {
+                    if (!call.hasAccess(queryToken = true)) {
                         close(CloseReason(CloseReason.Codes.VIOLATED_POLICY, "forbidden"))
                         return@webSocket
                     }
@@ -259,7 +264,7 @@ class RemoteControlServer(
                         launch {
                             runCatching {
                                 combine(stateVersion, devices) { version, _ -> version }.collect {
-                                    if (!call.hasAccess()) {
+                                    if (!call.hasAccess(queryToken = true)) {
                                         close(CloseReason(CloseReason.Codes.VIOLATED_POLICY, "revoked"))
                                         return@collect
                                     }
@@ -315,18 +320,15 @@ class RemoteControlServer(
 
     private suspend fun ApplicationCall.hasPairedToken(): Boolean = pairedDevice() != null
 
-    private suspend fun ApplicationCall.pairedDevice(): PairedDevice? {
-        val token = request.headers[HttpHeaders.Authorization]?.removePrefix("Bearer")?.trim().orEmpty()
-        return pairing?.deviceFor(token)
+    /** [queryToken]: also accept `?token=`, for browser WebSockets, which can't set headers. */
+    private suspend fun ApplicationCall.pairedDevice(queryToken: Boolean = false): PairedDevice? {
+        val token =
+            request.headers[HttpHeaders.Authorization]?.removePrefix("Bearer")?.trim()
+                ?: request.queryParameters["token"].takeIf { queryToken }
+        return pairing?.deviceFor(token.orEmpty())
     }
 
-    private suspend fun ApplicationCall.hasAccess(): Boolean {
-        if (!fromLan()) return false
-        val key = browserKey?.takeIf { it.isNotEmpty() }
-        val given = request.queryParameters["key"]
-        if (key != null && given != null && MessageDigest.isEqual(given.toByteArray(), key.toByteArray())) return true
-        return hasPairedToken()
-    }
+    private suspend fun ApplicationCall.hasAccess(queryToken: Boolean = false): Boolean = fromLan() && pairedDevice(queryToken) != null
 
     private suspend fun ApplicationCall.authorized(): Boolean {
         if (hasAccess()) return true
@@ -547,12 +549,12 @@ class RemoteControlServer(
                 Player.EVENT_PLAYBACK_PARAMETERS_CHANGED,
             )
 
-        /** The phone's LAN address, e.g. http://192.168.1.23:8642/?key=..., or null when not on a network. */
-        fun url(key: String): String? =
+        /** This device's LAN address, e.g. http://192.168.1.23:8642, or null when not on a network. */
+        fun url(): String? =
             NetworkInterface.getNetworkInterfaces()?.toList().orEmpty()
                 .filter { it.isUp && !it.isLoopback }
                 .flatMap { it.inetAddresses.toList() }
                 .firstOrNull { it is Inet4Address && it.isSiteLocalAddress }
-                ?.let { "http://${it.hostAddress}:$PORT/?key=$key" }
+                ?.let { "http://${it.hostAddress}:$PORT" }
     }
 }

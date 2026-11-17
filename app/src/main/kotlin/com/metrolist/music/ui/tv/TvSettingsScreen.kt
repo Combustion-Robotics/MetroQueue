@@ -63,7 +63,6 @@ import com.metrolist.music.constants.MixTransitionStyle
 import com.metrolist.music.constants.MixTransitionStyleKey
 import com.metrolist.music.constants.PureBlackKey
 import com.metrolist.music.constants.RemoteControlEnabledKey
-import com.metrolist.music.constants.RemoteControlKeyKey
 import com.metrolist.music.playback.RemoteControlServer
 import com.metrolist.music.playback.tv.PairedDevice
 import com.metrolist.music.ui.menu.MixDurationRange
@@ -78,7 +77,6 @@ import com.metrolist.music.viewmodels.AccountSettingsViewModel
 import kotlinx.coroutines.launch
 import java.text.DateFormat
 import java.util.Date
-import java.util.UUID
 import kotlin.math.roundToInt
 
 /** The settings that matter on a TV: account, sound, Mix, the phone remote, theme and version. */
@@ -95,8 +93,7 @@ fun TvSettingsScreen(accountViewModel: AccountSettingsViewModel = hiltViewModel(
     var audioQuality by rememberEnumPreference(AudioQualityKey, AudioQuality.AUTO)
     val mixSettings = rememberMixSettings()
     var remoteEnabled by rememberPreference(RemoteControlEnabledKey, false)
-    var remoteKey by rememberPreference(RemoteControlKeyKey, "")
-    val remoteUrl = remember(remoteEnabled, remoteKey) { if (remoteEnabled && remoteKey.isNotEmpty()) RemoteControlServer.url(remoteKey) else null }
+    val remoteUrl = remember(remoteEnabled) { if (remoteEnabled) RemoteControlServer.url() else null }
     val pairing = LocalPlayerConnection.current?.service?.tvPairing
     val pairedDevices = pairing?.devices?.collectAsStateWithLifecycle()?.value.orEmpty()
     val profileStore = LocalTvProfiles.current
@@ -261,7 +258,6 @@ fun TvSettingsScreen(accountViewModel: AccountSettingsViewModel = hiltViewModel(
                     },
                 checked = remoteEnabled,
                 onClick = {
-                    if (!remoteEnabled && remoteKey.isEmpty()) remoteKey = UUID.randomUUID().toString().replace("-", "")
                     remoteEnabled = !remoteEnabled
                 },
                 modifier = Modifier.tvFocusMemory(focusMemory, "remote"),

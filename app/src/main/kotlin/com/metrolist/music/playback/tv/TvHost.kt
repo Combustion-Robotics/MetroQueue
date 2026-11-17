@@ -5,7 +5,11 @@
 
 package com.metrolist.music.playback.tv
 
+import android.Manifest
+import android.app.PendingIntent
 import android.content.Context
+import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.nsd.NsdManager
 import android.net.nsd.NsdServiceInfo
 import android.os.Build
@@ -13,7 +17,13 @@ import android.os.SystemClock
 import android.provider.Settings
 import android.util.Base64
 import android.widget.Toast
+import androidx.core.app.NotificationChannelCompat
+import androidx.core.app.NotificationCompat
+import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.getSystemService
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.ProcessLifecycleOwner
+import com.metrolist.music.MainActivity
 import com.metrolist.music.R
 import com.metrolist.music.constants.TvDeviceIdKey
 import com.metrolist.music.constants.TvPairedDevicesKey
@@ -224,7 +234,44 @@ class TvPairing(
     }
 }
 
-/** Advertises the TV's remote control server on the local network (DNS-SD). */
+/** Phone: shows [prompt]'s code as a notification while the app is in the background; null removes it. */
+fun Context.updatePairingNotification(prompt: TvPairing.Prompt?) {
+    val notifications = NotificationManagerCompat.from(this)
+    if (prompt == null) {
+        notifications.cancel(PAIRING_NOTIFICATION_ID)
+        return
+    }
+    if (ProcessLifecycleOwner.get().lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) return
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+        checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+    ) {
+        return
+    }
+    notifications.createNotificationChannel(
+        NotificationChannelCompat
+            .Builder(PAIRING_CHANNEL_ID, NotificationManagerCompat.IMPORTANCE_HIGH)
+            .setName(getString(R.string.pairing_requests))
+            .build(),
+    )
+    val open = PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
+    val notification =
+        NotificationCompat
+            .Builder(this, PAIRING_CHANNEL_ID)
+            .setSmallIcon(R.drawable.small_icon)
+            .setContentTitle(getString(R.string.tv_pair_title, prompt.deviceName))
+            .setContentText(getString(R.string.phone_pair_code, prompt.code))
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setContentIntent(open)
+            .setAutoCancel(true)
+            .setTimeoutAfter((prompt.expiresAt - SystemClock.elapsedRealtime()).coerceAtLeast(1L))
+            .build()
+    notifications.notify(PAIRING_NOTIFICATION_ID, notification)
+}
+
+private const val PAIRING_CHANNEL_ID = "pairing_requests"
+private const val PAIRING_NOTIFICATION_ID = 8642
+
+/** Advertises this receiver's remote control server on the local network (DNS-SD). */
 class TvAdvertiser(
     context: Context,
 ) {
@@ -235,6 +282,7 @@ class TvAdvertiser(
         name: String,
         port: Int,
         id: String,
+        kind: String,
     ) {
         unregister()
         val nsd = nsd ?: return
@@ -245,7 +293,7 @@ class TvAdvertiser(
                 setPort(port)
                 setAttribute(TV_TXT_ID, id)
                 setAttribute(TV_TXT_VERSION, TV_PROTOCOL_VERSION.toString())
-                setAttribute(TV_TXT_KIND, DEVICE_KIND_TV)
+                setAttribute(TV_TXT_KIND, kind)
             }
         val registration =
             object : NsdManager.RegistrationListener {

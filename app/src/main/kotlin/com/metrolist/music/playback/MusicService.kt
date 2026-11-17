@@ -168,8 +168,8 @@ import com.metrolist.music.constants.PlayerVolumeKey
 import com.metrolist.music.constants.PreventDuplicateTracksInQueueKey
 import com.metrolist.music.constants.PrioritizeAddedSongsKey
 import com.metrolist.music.constants.RememberShuffleAndRepeatKey
+import com.metrolist.music.constants.PhoneReceiverEnabledKey
 import com.metrolist.music.constants.RemoteControlEnabledKey
-import com.metrolist.music.constants.RemoteControlKeyKey
 import com.metrolist.music.constants.RepeatModeKey
 import com.metrolist.music.constants.ResumeOnBluetoothConnectKey
 import com.metrolist.music.constants.ScrobbleDelayPercentKey
@@ -242,12 +242,15 @@ import com.metrolist.music.playback.queues.filterVideoSongs
 import com.metrolist.music.playback.queues.TransferredQueue
 import com.metrolist.music.playback.tv.QueueSnapshot
 import com.metrolist.music.playback.tv.TvAdvertiser
+import com.metrolist.music.playback.tv.DEVICE_KIND_PHONE
+import com.metrolist.music.playback.tv.DEVICE_KIND_TV
 import com.metrolist.music.playback.tv.TvDataSync
 import com.metrolist.music.playback.tv.TvProfileStore
 import com.metrolist.music.playback.tv.toMediaMetadata
 import com.metrolist.music.playback.tv.toRemoteTrack
 import com.metrolist.music.playback.tv.TvPairing
 import com.metrolist.music.playback.tv.TvRemoteManager
+import com.metrolist.music.playback.tv.updatePairingNotification
 import com.metrolist.music.playback.tv.deviceName
 import com.metrolist.music.ui.tv.isTvDevice
 import com.metrolist.music.constants.LoudnessLevel
@@ -643,7 +646,9 @@ class MusicService :
 
     /** TV mode: the remote server always runs so paired phones can find and control this TV. */
     val isTv by lazy { isTvDevice() }
-    val tvPairing: TvPairing? by lazy { if (isTv) TvPairing(this, scope) else null }
+
+    /** Pairing as a receiver: always on a TV, on a phone while [PhoneReceiverEnabledKey] is on. */
+    val tvPairing by lazy { TvPairing(this, scope) }
     private var tvAdvertiser: TvAdvertiser? = null
 
     /** Fires when a paired phone starts a queue here, so the TV UI can show Now Playing. */
@@ -653,6 +658,11 @@ class MusicService :
 
     /** Phone side of "Play on TV". */
     val tvRemote by tvRemoteLazy
+
+    /** Stops controlling another device without moving playback, e.g. when that device sends playback here. */
+    fun leaveRemoteDevice() {
+        if (tvRemoteLazy.isInitialized()) tvRemote.leave()
+    }
 
     /** Sync of MetroQueue data with paired devices, both as phone and as TV. */
     val dataSync by lazy { TvDataSync(this, database, customTransitions) }
@@ -1382,40 +1392,44 @@ class MusicService :
         dataSync.trackSettings(scope)
         scope.launch {
             dataStore.data
-                .map { (it[RemoteControlEnabledKey] == true) to it[RemoteControlKeyKey].orEmpty() }
+                .map { (it[RemoteControlEnabledKey] == true) to (isTv || it[PhoneReceiverEnabledKey] ?: true) }
                 .distinctUntilChanged()
-                .collect { (enabled, key) ->
-                    val browserKey = key.takeIf { enabled && it.isNotEmpty() }
+                .collect { (browserRemote, receiver) ->
                     withContext(Dispatchers.IO) {
                         tvAdvertiser?.unregister()
                         remoteControlServer?.stop()
-                        val pairing = tvPairing
+                        // Browsers pair too, so pairing runs whenever the server does
+                        val pairing = tvPairing.takeIf { receiver || browserRemote }
                         val tvId = pairing?.deviceId()
                         val tvName = deviceName()
+                        val kind = if (isTv) DEVICE_KIND_TV else DEVICE_KIND_PHONE
                         remoteControlServer =
-                            if (browserKey != null || pairing != null) {
+                            if (pairing != null) {
                                 runCatching {
                                     RemoteControlServer(
                                         this@MusicService,
-                                        browserKey,
+                                        browserRemote,
                                         pairing,
                                         tvId,
                                         tvName,
                                         if (isTv) tvProfiles.get() else null,
-                                        if (isTv) dataSync else null,
+                                        dataSync,
+                                        kind,
                                     ).apply { start() }
                                 }.onFailure { Timber.tag(TAG).e(it, "Remote control server failed to start") }
                                     .getOrNull()
                             } else {
                                 null
                             }
-                        if (remoteControlServer != null && tvId != null) {
+                        if (remoteControlServer != null && tvId != null && receiver) {
                             tvAdvertiser = (tvAdvertiser ?: TvAdvertiser(this@MusicService))
-                                .apply { register(tvName, RemoteControlServer.PORT, tvId) }
+                                .apply { register(tvName, RemoteControlServer.PORT, tvId, kind) }
                         }
                     }
                 }
         }
+        // The TV shows the code in its own UI; a phone in the background also needs a notification
+        if (!isTv) scope.launch { tvPairing.prompt.collect { updatePairingNotification(it) } }
         if (startupPrefs!![PersistentQueueKey] ?: true) {
             val queueFile = filesDir.resolve(PERSISTENT_QUEUE_FILE)
             if (queueFile.exists()) {

@@ -203,6 +203,7 @@ import com.metrolist.music.ui.screens.mix.TransitionEditorHost
 import com.metrolist.music.ui.theme.ColorSaver
 import com.metrolist.music.ui.theme.DefaultThemeColor
 import com.metrolist.music.ui.theme.MetrolistTheme
+import com.metrolist.music.ui.player.PhonePairingDialog
 import com.metrolist.music.ui.tv.TvApp
 import com.metrolist.music.ui.tv.isTvDevice
 import com.metrolist.music.playback.tv.TvProfileStore
@@ -1464,6 +1465,8 @@ class MainActivity : FragmentActivity() {
                     )
 
                     TransitionEditorHost()
+
+                    playerConnection?.service?.tvPairing?.let { PhonePairingDialog(it) }
 
                     if (showAccountDialog) {
                         AccountSettingsDialog(

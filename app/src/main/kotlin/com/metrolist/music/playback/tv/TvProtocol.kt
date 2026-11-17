@@ -20,6 +20,7 @@ const val TV_TXT_VERSION = "v"
 const val TV_TXT_KIND = "kind"
 const val DEVICE_KIND_TV = "tv"
 const val DEVICE_KIND_DESKTOP = "desktop"
+const val DEVICE_KIND_PHONE = "phone"
 
 @Serializable
 data class RemoteArtist(

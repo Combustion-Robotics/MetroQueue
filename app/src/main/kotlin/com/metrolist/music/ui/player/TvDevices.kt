@@ -22,6 +22,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
@@ -53,25 +54,61 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.metrolist.music.LocalPlayerConnection
 import com.metrolist.music.R
 import com.metrolist.music.constants.TvAutoSyncLibraryKey
+import com.metrolist.music.constants.TvDeviceIdKey
 import com.metrolist.music.constants.syncDataAutoKey
 import com.metrolist.music.playback.RemoteControlServer
 import com.metrolist.music.playback.tv.DEVICE_KIND_DESKTOP
+import com.metrolist.music.playback.tv.DEVICE_KIND_PHONE
 import com.metrolist.music.playback.tv.DEVICE_KIND_TV
 import com.metrolist.music.playback.tv.PairedTv
 import com.metrolist.music.playback.tv.SYNC_VERSION
+import com.metrolist.music.playback.tv.TvPairing
 import com.metrolist.music.playback.tv.TvRemoteClient
 import com.metrolist.music.playback.tv.TvRemoteManager
 import com.metrolist.music.utils.rememberPreference
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
-private fun deviceIcon(kind: String) = if (kind == DEVICE_KIND_DESKTOP) R.drawable.computer else R.drawable.tv
+private fun deviceIcon(kind: String) =
+    when (kind) {
+        DEVICE_KIND_DESKTOP -> R.drawable.computer
+        DEVICE_KIND_PHONE -> R.drawable.smartphone
+        else -> R.drawable.tv
+    }
+
+/** Shows the code another device asked for to pair with this phone; dismissing rejects the request. */
+@Composable
+fun PhonePairingDialog(pairing: TvPairing) {
+    val prompt = pairing.prompt.collectAsStateWithLifecycle().value ?: return
+    AlertDialog(
+        onDismissRequest = pairing::cancel,
+        icon = { Icon(painterResource(R.drawable.computer), contentDescription = null) },
+        title = { Text(stringResource(R.string.tv_pair_title, prompt.deviceName)) },
+        text = {
+            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
+                Text(stringResource(R.string.phone_pair_desc), textAlign = TextAlign.Center)
+                Spacer(Modifier.height(16.dp))
+                Text(
+                    text = prompt.code,
+                    style = MaterialTheme.typography.displayMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                    letterSpacing = 6.sp,
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = pairing::cancel) { Text(stringResource(R.string.cancel)) }
+        },
+    )
+}
 
 private val TvRemoteManager.Status.connectedTv: PairedTv?
     get() =
@@ -158,7 +195,10 @@ private fun TvDevicePicker(
     val coroutineScope = rememberCoroutineScope()
     val status by manager.status.collectAsStateWithLifecycle()
     val pairedTvs by manager.pairedTvs.collectAsStateWithLifecycle()
-    val discovered by manager.discovery.tvs.collectAsStateWithLifecycle()
+    val allDiscovered by manager.discovery.tvs.collectAsStateWithLifecycle()
+    // This phone advertises itself too
+    val ownId by rememberPreference(TvDeviceIdKey, "")
+    val discovered = remember(allDiscovered, ownId) { allDiscovered.filter { it.id != ownId } }
     val syncTimes by manager.librarySyncTimes.collectAsStateWithLifecycle()
     val syncing by manager.syncingLibrary.collectAsStateWithLifecycle()
     var autoSync by rememberPreference(TvAutoSyncLibraryKey, defaultValue = false)

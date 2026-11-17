@@ -154,7 +154,9 @@ val PrioritizeAddedSongsKey = booleanPreferencesKey("prioritizeAddedSongs")
 const val DEFAULT_PRIORITIZE_ADDED_SONGS = true
 val NewRadioAfterAddedSongsKey = booleanPreferencesKey("newRadioAfterAddedSongs")
 val RemoteControlEnabledKey = booleanPreferencesKey("remoteControlEnabled")
-val RemoteControlKeyKey = stringPreferencesKey("remoteControlKey")
+
+/** Phone: lets paired devices (e.g. MetroQueue Desktop) find and control this phone; on by default. */
+val PhoneReceiverEnabledKey = booleanPreferencesKey("phoneReceiverEnabled")
 val TvDeviceIdKey = stringPreferencesKey("tvDeviceId")
 val TvPairedDevicesKey = stringPreferencesKey("tvPairedDevices")
 val PairedTvsKey = stringPreferencesKey("pairedTvs")
