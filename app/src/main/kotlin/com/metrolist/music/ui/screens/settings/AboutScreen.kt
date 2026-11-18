@@ -100,15 +100,15 @@ private data class CommunityLink(
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 private val leadDeveloper = Contributor(
-    name = "Mo Agamy",
-    roleRes = R.string.credits_lead_developer,
-    githubHandle = "mostafaalagamy",
+    name = "CombustionRB",
+    roleRes = R.string.credits_metroqueue_developer,
+    githubHandle = "Combustion-Robotics",
     polygon = MaterialShapes.Cookie9Sided,
-    favoriteSongVideoId = "Mh2JWGWvy_Y"
 )
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 private val collaborators = listOf(
+    Contributor(name = "Mo Agamy", roleRes = R.string.credits_lead_developer, githubHandle = "mostafaalagamy", polygon = MaterialShapes.Cookie9Sided, favoriteSongVideoId = "Mh2JWGWvy_Y"),
     Contributor(name = "Adriel O'Connel", roleRes = R.string.credits_collaborator, githubHandle = "adrielGGmotion", polygon = MaterialShapes.Cookie4Sided, favoriteSongVideoId = "m2zUrruKjDQ"),
     Contributor(name = "Nyx", roleRes = R.string.credits_collaborator, githubHandle = "nyxiereal", polygon = MaterialShapes.Cookie12Sided, favoriteSongVideoId = "zselaN6zPXw"),
 )
@@ -187,22 +187,16 @@ private fun DeveloperSocials(
         horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         FilledTonalButton(
-            onClick = { uriHandler.openUri("https://metrolist.cc") },
+            onClick = { uriHandler.openUri("https://combustion-robotics.github.io/") },
             modifier = Modifier.weight(1f).height(48.dp)
         ) {
             Icon(painterResource(R.drawable.language), contentDescription = null)
         }
         FilledTonalButton(
-            onClick = { uriHandler.openUri("https://github.com/mostafaalagamy") },
+            onClick = { uriHandler.openUri(leadDeveloper.githubUrl) },
             modifier = Modifier.weight(1f).height(48.dp)
         ) {
             Icon(painterResource(R.drawable.github), contentDescription = null)
-        }
-        FilledTonalButton(
-            onClick = { uriHandler.openUri("https://www.instagram.com/mostafaalagamy") },
-            modifier = Modifier.weight(1f).height(48.dp)
-        ) {
-            Icon(painterResource(R.drawable.instagram), contentDescription = null)
         }
     }
 }
@@ -371,7 +365,7 @@ fun AboutScreen(
                             letterSpacing = (-0.5).sp
                         )
                         Text(
-                            text = stringResource(R.string.credits_lead_developer),
+                            text = stringResource(leadDeveloper.roleRes),
                             style = MaterialTheme.typography.titleMedium,
                             color = MaterialTheme.colorScheme.primary,
                             fontWeight = FontWeight.SemiBold

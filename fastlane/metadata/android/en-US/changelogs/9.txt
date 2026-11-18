@@ -1,0 +1,13 @@
+MetroQueue 1.4.2: Two-way remote control
+
+Control this phone from other devices
+- MetroQueue Desktop (and other phones) can now find, pair with and control this phone
+- New setting "Let other devices control this phone" (on by default), with a pairing code pop-up and a paired devices list
+- Send playback back and forth: a computer can move what it's playing to the phone and take it back
+
+Browser remote
+- Pair a browser with a short code instead of a long link; paired browsers can be forgotten any time
+
+Other
+- Integrations now links to MetroQueue Desktop
+- About page credits MetroQueue's developer alongside the Metrolist team

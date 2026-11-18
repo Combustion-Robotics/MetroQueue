@@ -956,7 +956,8 @@
     <!-- Credits / About Screen -->
     <string name="credits_lead_developer">Creator of Metrolist</string>
     <string name="credits_collaborator">Collaborator</string>
-    <string name="credits_collaborators_section">Metrolist collaborators</string>
+    <string name="credits_collaborators_section">Metrolist team</string>
+    <string name="credits_metroqueue_developer">Creator of MetroQueue</string>
     <string name="credits_license_name">GNU General Public License v3.0</string>
     <string name="credits_license_desc">Free, open-source software. You may use, study, share, and improve it</string>
     <string name="credits_discord">Discord server</string>
