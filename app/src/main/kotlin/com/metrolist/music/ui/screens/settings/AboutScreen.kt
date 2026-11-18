@@ -187,12 +187,6 @@ private fun DeveloperSocials(
         horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         FilledTonalButton(
-            onClick = { uriHandler.openUri("https://combustion-robotics.github.io/") },
-            modifier = Modifier.weight(1f).height(48.dp)
-        ) {
-            Icon(painterResource(R.drawable.language), contentDescription = null)
-        }
-        FilledTonalButton(
             onClick = { uriHandler.openUri(leadDeveloper.githubUrl) },
             modifier = Modifier.weight(1f).height(48.dp)
         ) {
