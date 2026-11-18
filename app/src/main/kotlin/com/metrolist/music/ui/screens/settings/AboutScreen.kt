@@ -100,7 +100,7 @@ private data class CommunityLink(
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 private val leadDeveloper = Contributor(
-    name = "CombustionRB",
+    name = "Combustion Robotics",
     roleRes = R.string.credits_metroqueue_developer,
     githubHandle = "Combustion-Robotics",
     polygon = MaterialShapes.Cookie9Sided,
