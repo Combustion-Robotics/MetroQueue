@@ -15,6 +15,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
@@ -33,12 +34,14 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -134,6 +137,7 @@ import com.metrolist.music.ui.component.LocalMenuState
 import com.metrolist.music.ui.component.OverlayEditButton
 import com.metrolist.music.ui.component.SongListItem
 import com.metrolist.music.ui.component.SortHeader
+import com.metrolist.music.ui.component.YouTubeListItem
 import com.metrolist.music.ui.component.TextFieldDialog
 import com.metrolist.music.ui.menu.CustomThumbnailMenu
 import com.metrolist.music.ui.menu.LocalPlaylistMenu
@@ -174,6 +178,8 @@ fun LocalPlaylistScreen(
     val playlist by viewModel.playlist.collectAsStateWithLifecycle()
     val songs by viewModel.playlistSongs.collectAsStateWithLifecycle()
     val onlinePlaylist by viewModel.onlinePlaylist.collectAsStateWithLifecycle()
+    val suggestions by viewModel.suggestions.collectAsStateWithLifecycle()
+    val suggestionsLoading by viewModel.suggestionsLoading.collectAsStateWithLifecycle()
     val mutableSongs = remember { mutableStateListOf<PlaylistSong>() }
     val playlistLength =
         remember(songs) {
@@ -427,7 +433,8 @@ fun LocalPlaylistScreen(
             lazyListState = lazyListState,
             scrollThresholdPadding = LocalPlayerAwareWindowInsets.current.asPaddingValues(),
         ) { from, to ->
-            if (to.index >= headerItems && from.index >= headerItems) {
+            val songRange = headerItems until headerItems + mutableSongs.size
+            if (to.index in songRange && from.index in songRange) {
                 val currentDragInfo = dragInfo
                 dragInfo =
                     if (currentDragInfo == null) {
@@ -728,6 +735,81 @@ fun LocalPlaylistScreen(
                             modifier = Modifier.animateItem(),
                         ) {
                             content()
+                        }
+                    }
+                }
+            }
+
+            if (editable && !isSearching && !inSelectMode && (suggestions.isNotEmpty() || suggestionsLoading)) {
+                item(key = "suggestions_header") {
+                    Column(
+                        modifier =
+                            Modifier
+                                .padding(horizontal = 16.dp)
+                                .padding(top = 24.dp, bottom = 8.dp)
+                                .animateItem(),
+                    ) {
+                        Text(
+                            text = stringResource(R.string.recommended_songs),
+                            style = MaterialTheme.typography.titleLarge,
+                        )
+                        Text(
+                            text = stringResource(R.string.recommended_songs_desc),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+
+                items(
+                    items = suggestions,
+                    key = { "suggestion_${it.id}" },
+                ) { song ->
+                    YouTubeListItem(
+                        item = song,
+                        isActive = song.id == mediaMetadata?.id,
+                        isPlaying = isPlaying,
+                        trailingContent = {
+                            IconButton(onClick = { viewModel.addSuggestion(song) }) {
+                                Icon(
+                                    painter = painterResource(R.drawable.add),
+                                    contentDescription = stringResource(R.string.add_to_playlist),
+                                )
+                            }
+                        },
+                        modifier =
+                            Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    if (song.id == mediaMetadata?.id) {
+                                        playerConnection.togglePlayPause()
+                                    } else {
+                                        playerConnection.playNow(song.toMediaItem())
+                                    }
+                                }.animateItem(),
+                    )
+                }
+
+                item(key = "suggestions_refresh") {
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier =
+                            Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 8.dp)
+                                .animateItem(),
+                    ) {
+                        if (suggestionsLoading) {
+                            CircularProgressIndicator(modifier = Modifier.size(32.dp))
+                        } else {
+                            TextButton(onClick = viewModel::refreshSuggestions) {
+                                Icon(
+                                    painter = painterResource(R.drawable.refresh),
+                                    contentDescription = null,
+                                    modifier = Modifier.padding(end = 8.dp).size(18.dp),
+                                )
+                                Text(stringResource(R.string.refresh))
+                            }
                         }
                     }
                 }

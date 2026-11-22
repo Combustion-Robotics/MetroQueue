@@ -33,6 +33,7 @@ import com.metrolist.music.extensions.togglePlayPause
 import com.metrolist.music.extensions.withUpdatedMetadata
 import com.metrolist.music.models.toMediaMetadata
 import com.metrolist.music.playback.MusicService.MusicBinder
+import com.metrolist.music.playback.queues.ListQueue
 import com.metrolist.music.playback.queues.Queue
 import com.metrolist.music.playback.tv.TvRemoteManager
 import com.metrolist.music.playback.tv.TvRemotePlayer
@@ -333,6 +334,17 @@ class PlayerConnection(
             Timber.tag(TAG).e(e, "Error in playNext")
             throw e
         }
+    }
+
+    /** Plays [item] right away without dropping the rest of the queue, which carries on after it. */
+    fun playNow(item: MediaItem) {
+        if (!allowInternalSync && shouldBlockPlaybackChanges?.invoke() == true) return
+        if (player.mediaItemCount == 0 || player.playbackState == Player.STATE_IDLE) {
+            playQueue(ListQueue(items = listOf(item)))
+            return
+        }
+        playNext(item)
+        seekToNext()
     }
 
     fun addToQueue(item: MediaItem) = addToQueue(listOf(item))

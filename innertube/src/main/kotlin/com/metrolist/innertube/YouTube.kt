@@ -1231,6 +1231,32 @@ object YouTube {
             )
         }
 
+    /**
+     * Suggested songs YouTube Music shows under a playlist the user owns.
+     * Pass [PlaylistPage.continuation] first, then the returned continuation to load a new batch.
+     */
+    suspend fun playlistSuggestions(continuation: String): Result<PlaylistContinuationPage> =
+        runCatching {
+            val contents =
+                innerTube
+                    .browse(
+                        client = WEB_REMIX,
+                        continuation = continuation,
+                        setLogin = true,
+                    ).body<BrowseResponse>()
+                    .continuationContents
+            val shelf =
+                contents?.sectionListContinuation?.contents?.firstNotNullOfOrNull { it.musicShelfRenderer }
+                    ?: contents?.musicShelfContinuation
+            PlaylistContinuationPage(
+                songs =
+                    shelf?.contents?.getItems()
+                        ?.mapNotNull { PlaylistPage.fromMusicResponsiveListItemRenderer(it) }
+                        .orEmpty(),
+                continuation = shelf?.continuations?.firstOrNull()?.reloadContinuationData?.continuation,
+            )
+        }
+
     suspend fun podcast(podcastId: String): Result<PodcastPage> = podcastWithDebug(podcastId) { }
 
     suspend fun podcastWithDebug(
