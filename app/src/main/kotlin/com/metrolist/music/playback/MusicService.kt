@@ -524,6 +524,21 @@ class MusicService :
                 if (playWhenReady) fadingPlayer?.play() else fadingPlayer?.pause()
             }
         }
+
+    // The outgoing player keeps its queue and repeat mode: changing them once it has read past the end of its
+    // song (seconds early, its AudioTrack buffer being sized for speed changes) makes ExoPlayer flush and
+    // rebuffer its audio, an audible stop as the fade starts. It is stopped once it moves on instead.
+    private val fadingPlayerListener =
+        object : Player.Listener {
+            override fun onMediaItemTransition(
+                mediaItem: MediaItem?,
+                reason: Int,
+            ) {
+                if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO || reason == Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT) {
+                    fadingPlayer?.stop()
+                }
+            }
+        }
     private var fadingAudioSessionId = C.AUDIO_SESSION_ID_UNSET
     private var crossfadeJob: Job? = null
     private var crossfadeWatchJob: Job? = null
@@ -2811,7 +2826,8 @@ class MusicService :
             return
         }
 
-        if (isAudioEffectSessionOpened && openedAudioEffectSessionId > 0) {
+        // A fading player's session is still audible; the end of the fade closes it
+        if (isAudioEffectSessionOpened && openedAudioEffectSessionId > 0 && openedAudioEffectSessionId != fadingAudioSessionId) {
             closeAudioEffectSession(sessionIdOverride = openedAudioEffectSessionId, clearNormalizationCache = false)
         }
 
@@ -6092,16 +6108,9 @@ class MusicService :
         player = nextPlayer
         _playerFlow.value = player
 
-        // Do not persist the retired player's temporary repeat-off state.
         fadingPlayer?.removeListener(this)
         sleepTimer?.let { timer -> fadingPlayer?.removeListener(timer) }
-        fadingPlayer?.repeatMode = Player.REPEAT_MODE_OFF
-        fadingPlayer?.let {
-            val currentIndex = it.currentMediaItemIndex
-            if (currentIndex < it.mediaItemCount - 1) {
-                it.removeMediaItems(currentIndex + 1, it.mediaItemCount)
-            }
-        }
+        fadingPlayer?.addListener(fadingPlayerListener)
 
         crossfadeProgress = 0f
         applyEffectiveVolume()
