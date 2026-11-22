@@ -1,19 +1,13 @@
 name: Fork Builds
 
 # Optimized (release) MetroQueue APKs, signed with the project key (DEV_KEYSTORE_BASE64).
+# Nothing builds on push: run it by hand (Actions -> Fork Builds -> Run workflow) on the branch to build.
 # main -> "MetroQueue" (com.combustion.metroqueue): a normal release v<versionName> the first time a version is built.
 #         Bump versionName in app/build.gradle.kts to publish the next release.
-# dev  -> "MetroQueue Beta" (com.combustion.metroqueue.beta): a "dev Build" pre-release, only when run by hand (Actions -> Fork Builds -> Run workflow on dev).
+# dev  -> "MetroQueue Beta" (com.combustion.metroqueue.beta): a "dev Build" pre-release per run.
 # tv   -> "MetroQueue TV" (com.combustion.metroqueue.tv): APK artifact only, no release.
 # any other branch (e.g. mix) -> "MetroQueue Mix" (com.combustion.metroqueue.mix): APK artifact only, no release.
 on:
-  push:
-    branches: ["main", "mix", "tv"]
-    paths-ignore:
-      - "**.md"
-      - "fastlane/**"
-      - "assets/**"
-      - ".github/ISSUE_TEMPLATE/**"
   workflow_dispatch:
 
 permissions:
