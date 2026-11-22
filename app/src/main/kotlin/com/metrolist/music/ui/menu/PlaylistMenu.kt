@@ -58,6 +58,7 @@ import com.metrolist.music.playback.ExoDownloadService
 import com.metrolist.music.playback.queues.ListQueue
 import com.metrolist.music.playback.queues.YouTubeQueue
 import com.metrolist.music.playback.tv.markPlaylistSyncDeleted
+import com.metrolist.music.ui.component.ConvertToYouTubeConfirmDialog
 import com.metrolist.music.ui.component.DefaultDialog
 import com.metrolist.music.ui.component.Material3MenuGroup
 import com.metrolist.music.ui.component.Material3MenuItemData
@@ -65,6 +66,7 @@ import com.metrolist.music.ui.component.NewAction
 import com.metrolist.music.ui.component.NewActionGrid
 import com.metrolist.music.ui.component.PlaylistListItem
 import com.metrolist.music.ui.component.TextFieldDialog
+import com.metrolist.music.ui.component.rememberIsYouTubeSignedIn
 import com.metrolist.music.ui.menu.ExportDialog
 import com.metrolist.music.utils.PlaylistExporter
 import com.metrolist.music.utils.getExportFileUri
@@ -215,6 +217,23 @@ fun PlaylistMenu(
 
     var showDeletePlaylistDialog by remember {
         mutableStateOf(false)
+    }
+
+    val isSignedIn = rememberIsYouTubeSignedIn()
+    val canConvertToYouTube = editable && isSignedIn && playlist.playlist.browseId == null &&
+        autoPlaylist != true && downloadPlaylist != true && !isGuest
+    var showConvertDialog by remember { mutableStateOf(false) }
+
+    if (showConvertDialog) {
+        ConvertToYouTubeConfirmDialog(
+            playlistId = playlist.id,
+            playlistName = playlist.playlist.name,
+            onDismiss = { showConvertDialog = false },
+            onStarted = {
+                showConvertDialog = false
+                onDismiss()
+            },
+        )
     }
 
     if (showDeletePlaylistDialog) {
@@ -490,6 +509,23 @@ fun PlaylistMenu(
                                     },
                                     onClick = {
                                         showEditDialog = true
+                                    },
+                                ),
+                            )
+                        }
+                        if (canConvertToYouTube) {
+                            add(
+                                Material3MenuItemData(
+                                    title = { Text(text = stringResource(R.string.convert_to_youtube_playlist)) },
+                                    description = { Text(text = stringResource(R.string.convert_to_youtube_playlist_desc)) },
+                                    icon = {
+                                        Icon(
+                                            painter = painterResource(R.drawable.upload),
+                                            contentDescription = null,
+                                        )
+                                    },
+                                    onClick = {
+                                        showConvertDialog = true
                                     },
                                 ),
                             )

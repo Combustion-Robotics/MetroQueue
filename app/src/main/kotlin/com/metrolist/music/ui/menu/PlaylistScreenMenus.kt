@@ -37,9 +37,11 @@ import com.metrolist.music.R
 import com.metrolist.music.db.entities.Playlist
 import com.metrolist.music.db.entities.PlaylistSong
 import com.metrolist.music.db.entities.Song
+import com.metrolist.music.ui.component.ConvertToYouTubeConfirmDialog
 import com.metrolist.music.ui.component.DefaultDialog
 import com.metrolist.music.ui.component.Material3MenuGroup
 import com.metrolist.music.ui.component.Material3MenuItemData
+import com.metrolist.music.ui.component.rememberIsYouTubeSignedIn
 import com.metrolist.music.utils.PlaylistExporter
 import com.metrolist.music.utils.getExportFileUri
 import com.metrolist.music.utils.saveToPublicDocuments
@@ -123,6 +125,8 @@ fun LocalPlaylistMenu(
         }
 
     val isYouTubePlaylist = playlist.playlist.browseId != null
+    val canConvertToYouTube = !isYouTubePlaylist && rememberIsYouTubeSignedIn()
+    val (showConvertDialog, setShowConvertDialog) = remember { mutableStateOf(false) }
 
     val menuItems =
         buildList {
@@ -159,6 +163,22 @@ fun LocalPlaylistMenu(
                             onSync()
                             onDismiss()
                         },
+                    ),
+                )
+            }
+
+            if (canConvertToYouTube) {
+                add(
+                    Material3MenuItemData(
+                        title = { Text(stringResource(R.string.convert_to_youtube_playlist)) },
+                        description = { Text(stringResource(R.string.convert_to_youtube_playlist_desc)) },
+                        icon = {
+                            Icon(
+                                painter = painterResource(R.drawable.upload),
+                                contentDescription = null,
+                            )
+                        },
+                        onClick = { setShowConvertDialog(true) },
                     ),
                 )
             }
@@ -247,6 +267,18 @@ fun LocalPlaylistMenu(
         }
 
     Material3MenuGroup(items = menuItems)
+
+    if (showConvertDialog) {
+        ConvertToYouTubeConfirmDialog(
+            playlistId = playlist.id,
+            playlistName = playlist.playlist.name,
+            onDismiss = { setShowConvertDialog(false) },
+            onStarted = {
+                setShowConvertDialog(false)
+                onDismiss()
+            },
+        )
+    }
 
     if (showExportDialog) {
         ExportDialog(

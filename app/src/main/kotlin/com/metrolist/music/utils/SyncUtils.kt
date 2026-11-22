@@ -40,6 +40,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.firstOrNull
@@ -49,6 +52,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import timber.log.Timber
+import java.io.IOException
 import java.time.LocalDateTime
 import java.time.ZoneOffset
 import javax.inject.Inject
@@ -216,6 +220,14 @@ internal fun setVideoIdUpdatesForAddedSongs(
     return updates
 }
 
+sealed interface PlaylistConversionState {
+    val playlistName: String
+
+    data class Running(override val playlistName: String, val done: Int, val total: Int) : PlaylistConversionState
+    data class Done(override val playlistName: String, val skipped: Int) : PlaylistConversionState
+    data class Failed(override val playlistName: String) : PlaylistConversionState
+}
+
 @Singleton
 class SyncUtils @Inject constructor(
     @ApplicationContext private val context: Context,
@@ -239,6 +251,9 @@ class SyncUtils @Inject constructor(
     private val playlistsBeingModified = ConcurrentHashMap<String, AtomicInteger>()
     private val playlistEditMutex = Mutex()
     private var lastPlaylistEditAtMs = 0L
+
+    private val _playlistConversion = MutableStateFlow<PlaylistConversionState?>(null)
+    val playlistConversion: StateFlow<PlaylistConversionState?> = _playlistConversion.asStateFlow()
 
     companion object {
         private const val MAX_RETRIES = 3
@@ -1824,6 +1839,73 @@ class SyncUtils @Inject constructor(
             } finally {
                 unmarkPlaylistModifying(playlistId)
             }
+        }
+    }
+
+    fun clearPlaylistConversion() {
+        _playlistConversion.value = null
+    }
+
+    /**
+     * Uploads a local-only playlist to a new private YouTube playlist and links it.
+     * On-device songs and songs YouTube rejects are skipped; they stay local as pending rows.
+     * A network failure deletes the half-made remote playlist and leaves the local one untouched.
+     */
+    fun convertToYouTubePlaylist(playlistId: String, playlistName: String) {
+        if (_playlistConversion.value is PlaylistConversionState.Running) return
+        _playlistConversion.value = PlaylistConversionState.Running(playlistName, 0, 0)
+        syncScope.launch {
+            val songs = database.playlistSongsBlocking(playlistId)
+            val uploadable = songs.filterNot { it.song.song.isLocal }.map { it.map.songId }
+            var skipped = songs.size - uploadable.size
+            _playlistConversion.value = PlaylistConversionState.Running(playlistName, 0, uploadable.size)
+
+            val browseId = runCatching { YouTube.createPlaylist(playlistName) }
+                .onFailure { Timber.e(it, "convertToYouTubePlaylist: create failed") }
+                .getOrNull()
+                ?.takeIf { it.isNotBlank() }
+            if (browseId == null) {
+                _playlistConversion.value = PlaylistConversionState.Failed(playlistName)
+                return@launch
+            }
+
+            markPlaylistModifying(playlistId)
+            try {
+                var added = 0
+                uploadable.forEachIndexed { index, songId ->
+                    var failure: Throwable? = null
+                    runQueuedPlaylistEdit {
+                        failure = YouTube.addToPlaylist(browseId, songId).exceptionOrNull()
+                    }
+                    val e = failure
+                    if (e == null) {
+                        added++
+                    } else {
+                        if (e is IOException || !context.isInternetConnected()) throw e
+                        Timber.w(e, "convertToYouTubePlaylist: YouTube rejected $songId")
+                        skipped++
+                    }
+                    _playlistConversion.value =
+                        PlaylistConversionState.Running(playlistName, index + 1, uploadable.size)
+                }
+                // Every add rejected (e.g. expired login): treat as failure rather than link an empty playlist.
+                if (uploadable.isNotEmpty() && added == 0) error("No songs could be added")
+
+                val playlist = database.playlistBlocking(playlistId)?.playlist ?: error("Playlist deleted")
+                database.update(playlist.copy(browseId = browseId, isAutoSync = true))
+            } catch (e: Exception) {
+                if (e is CancellationException) throw e
+                Timber.e(e, "convertToYouTubePlaylist: failed, deleting remote playlist $browseId")
+                YouTube.deletePlaylist(browseId)
+                _playlistConversion.value = PlaylistConversionState.Failed(playlistName)
+                return@launch
+            } finally {
+                unmarkPlaylistModifying(playlistId)
+            }
+
+            // Pulls the setVideoIds needed for later remove/reorder.
+            syncPlaylistSuspend(browseId, playlistId)
+            _playlistConversion.value = PlaylistConversionState.Done(playlistName, skipped)
         }
     }
 

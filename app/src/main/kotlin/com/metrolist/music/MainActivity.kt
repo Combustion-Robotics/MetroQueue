@@ -190,6 +190,7 @@ import com.metrolist.music.ui.component.BottomSheetMenu
 import com.metrolist.music.ui.component.BottomSheetPage
 import com.metrolist.music.ui.component.LocalBottomSheetPageState
 import com.metrolist.music.ui.component.LocalMenuState
+import com.metrolist.music.ui.component.PlaylistConversionHost
 import com.metrolist.music.ui.component.rememberBottomSheetState
 import com.metrolist.music.ui.component.shimmer.ShimmerTheme
 import com.metrolist.music.ui.menu.YouTubeSongMenu
@@ -1101,6 +1102,7 @@ class MainActivity : FragmentActivity() {
                     if (showChangelog.value) {
                         ChangelogScreen(onDismiss = { showChangelog.value = false })
                     }
+                    PlaylistConversionHost()
 
                     Scaffold(
                         snackbarHost = { SnackbarHost(snackbarHostState) },
