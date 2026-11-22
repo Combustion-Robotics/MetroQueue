@@ -1231,4 +1231,14 @@
     <string name="recommended_songs">Recommended songs</string>
     <string name="recommended_songs_desc">Based on what\'s in this playlist</string>
     <string name="refresh">Refresh</string>
+    <string name="convert_to_youtube_playlist">Convert to YouTube playlist</string>
+    <string name="convert_to_youtube_playlist_desc">Upload and keep this playlist synced</string>
+    <string name="convert_to_youtube_playlist_confirm">Upload \"%s\" to your YouTube account as a private playlist and keep it synced?</string>
+    <string name="converting_playlist_progress">Uploading %1$d of %2$d songs…</string>
+    <string name="playlist_converted">\"%s\" is now synced with YouTube</string>
+    <plurals name="playlist_convert_skipped">
+        <item quantity="one">%d song couldn\'t be added and stays local only</item>
+        <item quantity="other">%d songs couldn\'t be added and stay local only</item>
+    </plurals>
+    <string name="playlist_convert_failed">Couldn\'t convert \"%s\". Nothing was changed.</string>
 </resources>
