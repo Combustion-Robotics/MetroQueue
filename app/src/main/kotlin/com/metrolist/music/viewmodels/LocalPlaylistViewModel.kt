@@ -134,7 +134,7 @@ constructor(
                 suggestionsToken = native?.continuation
                 var pool = native?.songs.orEmpty()
                 if (pool.size < SUGGESTION_POOL_SIZE) {
-                    pool = pool + relatedSongs(playlistSongIds.shuffled().take(SUGGESTION_SEEDS))
+                    pool = pool + radioSongs(playlistSongIds.shuffled().take(SUGGESTION_SEEDS))
                 }
 
                 val inPlaylist = playlistSongIds.toHashSet()
@@ -148,14 +148,13 @@ constructor(
             }
     }
 
-    private suspend fun relatedSongs(seedIds: List<String>): List<SongItem> =
+    // A song's radio is YouTube Music's own list of similar songs
+    private suspend fun radioSongs(seedIds: List<String>): List<SongItem> =
         coroutineScope {
             seedIds
                 .map { id ->
                     async {
-                        YouTube.next(WatchEndpoint(videoId = id)).getOrNull()?.relatedEndpoint
-                            ?.let { YouTube.related(it).getOrNull()?.songs }
-                            .orEmpty()
+                        YouTube.next(WatchEndpoint(videoId = id, playlistId = "RDAMVM$id")).getOrNull()?.items.orEmpty()
                     }
                 }.awaitAll()
                 .flatten()

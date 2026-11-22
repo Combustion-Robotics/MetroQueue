@@ -2994,11 +2994,7 @@ object YouTube {
                                     ?.tabbedRenderer
                                     ?.watchNextTabbedResultsRenderer
                                     ?.tabs
-                                    ?.getOrNull(
-                                        2,
-                                    )?.tabRenderer
-                                    ?.endpoint
-                                    ?.browseEndpoint,
+                                    ?.firstNotNullOfOrNull { it.tabRenderer.endpoint?.browseEndpoint?.takeIf(BrowseEndpoint::isRelatedEndpoint) },
                             currentIndex = currentIndex,
                             endpoint = watchPlaylistEndpoint,
                         )
@@ -3023,11 +3019,7 @@ object YouTube {
                         ?.tabbedRenderer
                         ?.watchNextTabbedResultsRenderer
                         ?.tabs
-                        ?.getOrNull(
-                            2,
-                        )?.tabRenderer
-                        ?.endpoint
-                        ?.browseEndpoint,
+                        ?.firstNotNullOfOrNull { it.tabRenderer.endpoint?.browseEndpoint?.takeIf(BrowseEndpoint::isRelatedEndpoint) },
                 continuation = playlistPanelRenderer.continuations?.getContinuation(),
                 endpoint = endpoint,
             )
