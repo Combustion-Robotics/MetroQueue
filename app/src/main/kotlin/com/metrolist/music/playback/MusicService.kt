@@ -543,6 +543,9 @@ class MusicService :
     private var crossfadeJob: Job? = null
     private var crossfadeWatchJob: Job? = null
 
+    // The song a seek moved past its transition's start; it plays out without one
+    private var seekedPastTransitionMediaId: String? = null
+
     // Holds an automatic transition that is due until its incoming player is ready
     private var incomingWaitJob: Job? = null
     private var introScanJob: Job? = null
@@ -5274,7 +5277,7 @@ class MusicService :
                 it.appliedTail = null
                 it.appliedHead = null
             }
-            scheduleCrossfade()
+            scheduleCrossfade(afterSeek = true)
         }
     }
 
@@ -5282,8 +5285,12 @@ class MusicService :
      * Plans the automatic transition out of the current track. Near its end the incoming player
      * is pre-buffered and the tail is metered, so the transition can start early where the song
      * audibly ends (fade-out or trailing silence); otherwise it starts at the planned position.
+     * A seek ([afterSeek]) past the start point plays the song out without a transition.
      */
-    private fun scheduleCrossfade(prebufferDue: Boolean = false) {
+    private fun scheduleCrossfade(
+        prebufferDue: Boolean = false,
+        afterSeek: Boolean = false,
+    ) {
         crossfadeMessage?.cancel()
         crossfadeMessage = null
         crossfadeWatchJob?.cancel()
@@ -5314,13 +5321,20 @@ class MusicService :
         if (incomingWaitJob?.isActive == true && position >= plan.startPositionMs - CROSSFADE_POSITION_TOLERANCE_MS) return
         // One started early, or before seeking back, is armed again below
         cancelIncomingWait()
+        val currentMediaId = player.currentMediaItem?.mediaId
         if (position >= plan.startPositionMs) {
+            if (afterSeek) seekedPastTransitionMediaId = currentMediaId
+            // Due but not started yet (its message was cancelled above, or it couldn't start then): start it now
+            if (seekedPastTransitionMediaId != currentMediaId && !isCrossfading) {
+                startAutoCrossfade()
+                return
+            }
             releaseIncomingPlayer()
             stopTailMetering()
             return
         }
+        seekedPastTransitionMediaId = null
 
-        val currentMediaId = player.currentMediaItem?.mediaId
         val earliestStart = plan.startPositionMs - if (plan.allowEarlyStart) CROSSFADE_EARLY_START_WINDOW_MS else 0L
         val prebufferAt = earliestStart - CROSSFADE_PREBUFFER_LEAD_MS
         // The tolerance keeps a message from being re-posted just behind the playback position, where it would never fire
