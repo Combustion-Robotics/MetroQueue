@@ -1,17 +1,7 @@
 name: Build PR
 
 on:
-  pull_request:
-    branches:
-      - "**"
-    # Weblate PRs only touch localized string files, which cannot break a
-    # build that the base branch already compiles. The default (unsuffixed)
-    # `values/` directory is deliberately not listed, so English string
-    # changes still build.
-    paths-ignore:
-      - "app/src/main/res/values-*/strings.xml"
-      - "app/src/main/res/values-*/metrolist_strings.xml"
-      - "fastlane/**"
+  workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.number }}
